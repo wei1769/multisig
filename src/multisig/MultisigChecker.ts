@@ -168,7 +168,8 @@ export const checkMultisig = async (
         threshold: parsedData.threshold,
         signers: parsedData.signers,
         proposers: parsedData.proposers,
-        allowArbitrarySeqno: parsedData.allowArbitraryOrderSeqno
+        allowArbitrarySeqno: parsedData.allowArbitraryOrderSeqno,
+        supportedTokens: []
     }, multisigCode)
 
     const stateInitMatches = multisigAddress2.address.equals(multisigAddress.address);

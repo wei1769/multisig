@@ -60,7 +60,7 @@ export const sendToTonApi = async (method: string, params: any, isTestnet: boole
 export class MyNetworkProvider implements ContractProvider {
     private contractAddress: Address;
     private isTestnet: boolean;
-    private tonClient: TonClient;
+     tonClient: TonClient;
 
     constructor(contractAddress: Address, isTestnet: boolean) {
         this.contractAddress = contractAddress;

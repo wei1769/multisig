@@ -1,363 +1,526 @@
-import {Address, beginCell, Cell, fromNano, SendMode, toNano} from "@ton/core";
-import {THEME, TonConnectUI} from '@tonconnect/ui'
+import { TonClient } from "@ton/ton";
 import {
-    AddressInfo,
-    addressToString,
-    equalsMsgAddresses,
-    makeAddressLink,
-    validateUserFriendlyAddress
+  Address,
+  beginCell,
+  Cell,
+  fromNano,
+  SendMode,
+  toNano,
+} from "@ton/core";
+import { THEME, TonConnectUI } from "@tonconnect/ui";
+import {
+  AddressInfo,
+  addressToString,
+  equalsMsgAddresses,
+  makeAddressLink,
+  validateUserFriendlyAddress,
 } from "./utils/utils";
-import {checkMultisig, LastOrder, MultisigInfo} from "./multisig/MultisigChecker";
-import {checkMultisigOrder, MultisigOrderInfo} from "./multisig/MultisigOrderChecker";
-import {JettonMinter, LOCK_TYPES, LockType, lockTypeToDescription, lockTypeToInt} from "./jetton/JettonMinter";
-import {Multisig} from "./multisig/Multisig";
-import {toUnits} from "./utils/units";
-import {checkJettonMinter} from "./jetton/JettonMinterChecker";
-import {storeStateInit} from "@ton/core/src/types/StateInit";
-import {MyNetworkProvider, sendToIndex} from "./utils/MyNetworkProvider";
-import {Order} from "./multisig/Order";
-import {JettonWallet} from "./jetton/JettonWallet";
+import {
+  checkMultisig,
+  LastOrder,
+  MultisigInfo,
+} from "./multisig/MultisigChecker";
+import {
+  checkMultisigOrder,
+  MultisigOrderInfo,
+} from "./multisig/MultisigOrderChecker";
+import {
+  JettonMinter,
+  LOCK_TYPES,
+  LockType,
+  lockTypeToDescription,
+  lockTypeToInt,
+} from "./jetton/JettonMinter";
+import { Multisig } from "./multisig/Multisig";
+import { toUnits } from "./utils/units";
+import { checkJettonMinter } from "./jetton/JettonMinterChecker";
+import { storeStateInit } from "@ton/core/src/types/StateInit";
+import { MyNetworkProvider, sendToIndex } from "./utils/MyNetworkProvider";
+import { Order } from "./multisig/Order";
+import { JettonWallet } from "./jetton/JettonWallet";
+import { Op } from "./multisig/Constants";
 
 // UI COMMON
 
-const $ = (selector: string): HTMLElement | null => document.querySelector(selector);
+const $ = (selector: string): HTMLElement | null =>
+  document.querySelector(selector);
 
-const $$ = (selector: string): NodeListOf<HTMLElement> => document.querySelectorAll(selector);
+const $$ = (selector: string): NodeListOf<HTMLElement> =>
+  document.querySelectorAll(selector);
 
 const toggle = (element: HTMLElement, isVisible: boolean): void => {
-    element.style.display = isVisible ? 'flex' : 'none';
-}
+  element.style.display = isVisible ? "flex" : "none";
+};
 
-const YOU_BADGE: string = ` <div class="badge">It's you</div>`
+const YOU_BADGE: string = ` <div class="badge">It's you</div>`;
 
 // URL STATE
 
 const clearUrlState = (): void => {
-    if (window.history.state !== '') {
-        window.history.pushState('', 'TON Multisig', '#');
-    }
-}
+  if (window.history.state !== "") {
+    window.history.pushState("", "TON Multisig", "#");
+  }
+};
 
 const pushUrlState = (multisigAddress: string, orderId?: bigint): void => {
-    let url = multisigAddress;
-    if (orderId !== undefined) {
-        url += '/' + orderId;
-    }
-    if (window.history.state !== url) {
-        window.history.pushState(url, 'TON Multisig - ' + url, '#' + url);
-    }
-}
+  let url = multisigAddress;
+  if (orderId !== undefined) {
+    url += "/" + orderId;
+  }
+  if (window.history.state !== url) {
+    window.history.pushState(url, "TON Multisig - " + url, "#" + url);
+  }
+};
 
 // TESTNET, LANGUAGE
 
 const browserLang: string = navigator.language;
-const lang: 'ru' | 'en' = (browserLang === 'ru-RU') || (browserLang === 'ru') || (browserLang === 'be-BY') || (browserLang === 'be') || (browserLang === 'kk-KZ') || (browserLang === 'kk') ? 'ru' : 'en';
+const lang: "ru" | "en" =
+  browserLang === "ru-RU" ||
+  browserLang === "ru" ||
+  browserLang === "be-BY" ||
+  browserLang === "be" ||
+  browserLang === "kk-KZ" ||
+  browserLang === "kk"
+    ? "ru"
+    : "en";
 
-const IS_TESTNET: boolean = window.location.href.indexOf('testnet=true') > -1;
+const IS_TESTNET: boolean = window.location.href.indexOf("testnet=true") > -1;
 
 if (IS_TESTNET) {
-    $('.testnet-badge').style.display = 'block';
-    document.body.classList.add('testnet-padding');
+  $(".testnet-badge").style.display = "block";
+  document.body.classList.add("testnet-padding");
 }
 
 export const formatContractAddress = (address: Address): string => {
-    return address.toString({bounceable: true, testOnly: IS_TESTNET});
-}
+  return address.toString({ bounceable: true, testOnly: IS_TESTNET });
+};
 
 // SCREEN
 
 type ScreenType =
-    'startScreen'
-    | 'importScreen'
-    | 'multisigScreen'
-    | 'newOrderScreen'
-    | 'orderScreen'
-    | 'newMultisigScreen'
-    | 'loadingScreen';
+  | "startScreen"
+  | "importScreen"
+  | "multisigScreen"
+  | "newOrderScreen"
+  | "orderScreen"
+  | "newMultisigScreen"
+  | "loadingScreen"
+  | "deposit_screen";
 
-let currentScreen: ScreenType = 'startScreen';
+let currentScreen: ScreenType = "startScreen";
 
 const showScreen = (name: ScreenType): void => {
-    const screens = ['startScreen', 'importScreen', 'multisigScreen', 'newOrderScreen', 'orderScreen', 'newMultisigScreen', 'loadingScreen']
-    currentScreen = name;
-    for (const screen of screens) {
-        toggle($('#' + screen), screen === name);
-    }
+  const screens = [
+    "startScreen",
+    "importScreen",
+    "multisigScreen",
+    "newOrderScreen",
+    "orderScreen",
+    "newMultisigScreen",
+    "loadingScreen",
+    "deposit_screen",
+  ];
+  currentScreen = name;
+  for (const screen of screens) {
+    toggle($("#" + screen), screen === name);
+  }
 
-    switch (currentScreen) {
-        case 'startScreen':
-            clearMultisig();
-            clearOrder();
-            clearUrlState();
-            break;
-        case 'importScreen':
-            ($('#import_input') as HTMLInputElement).value = '';
-            break;
-        case 'newOrderScreen':
-            newOrderClear();
-            break;
-        case 'newMultisigScreen':
-            newMultisigClear();
-            break;
-    }
-}
+  switch (currentScreen) {
+    case "startScreen":
+      clearMultisig();
+      clearOrder();
+      clearUrlState();
+      break;
+    case "importScreen":
+      ($("#import_input") as HTMLInputElement).value = "";
+      break;
+    case "newOrderScreen":
+      newOrderClear();
+      break;
+    case "newMultisigScreen":
+      newMultisigClear();
+      break;
+  }
+};
 
 // TONCONNECT
 
 let myAddress: Address | null;
 
 const tonConnectUI = new TonConnectUI({
-    manifestUrl: 'https://multisig.ton.org/tonconnect-manifest.json',
-    buttonRootId: 'tonConnectButton'
+  manifestUrl: "https://multisig.ton.org/tonconnect-manifest.json",
+  buttonRootId: "tonConnectButton",
 });
 
 tonConnectUI.uiOptions = {
-    uiPreferences: {
-        theme: THEME.LIGHT
-    }
+  uiPreferences: {
+    theme: THEME.LIGHT,
+  },
 };
 
-const tonConnectUnsubscribe = tonConnectUI.onStatusChange(info => {
-    if (info === null) { // wallet disconnected
-        myAddress = null;
-    } else if (info.account) {
-        myAddress = Address.parseRaw(info.account.address);
-    }
+const tonConnectUnsubscribe = tonConnectUI.onStatusChange((info) => {
+  if (info === null) {
+    // wallet disconnected
+    myAddress = null;
+  } else if (info.account) {
+    myAddress = Address.parseRaw(info.account.address);
+  }
 
-    if (currentMultisigAddress && currentMultisigInfo) {
-        renderCurrentMultisigInfo();
-    }
+  if (currentMultisigAddress && currentMultisigInfo) {
+    renderCurrentMultisigInfo();
+  }
 
-    if (currentOrderId && currentOrderInfo) {
-        renderCurrentOrderInfo();
-    }
+  if (currentOrderId && currentOrderInfo) {
+    renderCurrentOrderInfo();
+  }
 });
 
 // START SCREEN
 
-$('#createMultisigButton').addEventListener('click', () => {
-    showNewMultisigScreen('create');
+$("#createMultisigButton").addEventListener("click", () => {
+  showNewMultisigScreen("create");
 });
 
-$('#importMultisigButton').addEventListener('click', () => {
-    showScreen('importScreen');
+$("#TEstJettonDeposit").addEventListener("click", () => {
+  console.log("Test");
+  showScreen("deposit_screen");
+});
+
+const deposit_token_mintInput = $("#deposit_token_mint") as HTMLInputElement;
+const deposit_token_amountInput = $("#deposit_amount") as HTMLInputElement;
+const cross_token_dest = $("#cross_out_address") as HTMLInputElement;
+const cross_token_chain_id = $("#cross_out_chain_id") as HTMLInputElement;
+
+$("#Submit_Test_Deposit").addEventListener("click", async () => {
+  console.log("Submit_Test_Deposit");
+  const amount = deposit_token_amountInput.value;
+  const mint = deposit_token_mintInput.value;
+  const chain_id = cross_token_chain_id.value;
+  const dest = cross_token_dest.value;
+
+  let address = Address.parse(mint);
+  const provider = new MyNetworkProvider(address, IS_TESTNET);
+  let jettonMaster = JettonMinter.createFromAddress(address);
+  let jettonSource = await jettonMaster.getWalletAddress(provider, myAddress);
+  const jetton_dest = await jettonMaster.getWalletAddress(
+    provider,
+    Address.parse(currentMultisigAddress)
+  );
+  let ref = beginCell();
+  if (Number(chain_id) && dest.length > 20) {
+    ref.storeUint(Op.multisig.crossout, 32)
+    const destAddress = Address.parse(dest);
+
+    let destAddressInt = BigInt("0x" + destAddress.hash.toString("hex"));
+    console.log(destAddress.hash.toString("hex"));
+    let chain_id_int = BigInt(chain_id);
+    console.log(BigInt.asUintN(256, destAddressInt).toString());
+    console.log(destAddressInt.toString());
+    ref.storeUint(BigInt.asUintN(256, destAddressInt), 256);
+    console.log(BigInt.asUintN(256, destAddressInt).toString());
+    ref.storeUint(chain_id_int, 256);
+  } else {
+    ref.storeUint(Op.multisig.deposit, 32);
+  }
+  let transferMessage = JettonWallet.transferMessage(
+    BigInt(amount),
+    Address.parse(currentMultisigAddress),
+    myAddress,
+    null,
+    toNano(0.01),
+    ref.endCell()
+  );
+  const API_KEY =
+    "d843619b379084d133f061606beecbf72ae2bf60e0622e808f2a3f631673599b";
+  let rpc = new TonClient({
+    endpoint: "https://toncenter.com/api/v2/jsonRPC",
+    apiKey: API_KEY,
+  });
+  console.log(jetton_dest.toString());
+  let result = await tonConnectUI.sendTransaction({
+    validUntil: Math.floor(Date.now() / 1000) + 60,
+    messages: [
+      {
+        address: jettonSource.toString(),
+        amount: toNano(0.03).toString(),
+        payload: transferMessage.toBoc().toString("base64"),
+      },
+    ],
+  });
+  console.log({
+    address: jettonSource.toString(),
+    amount: toNano(0.12).toString(),
+    payload: transferMessage.toBoc().toString("base64"),
+  });
+});
+
+$("#importMultisigButton").addEventListener("click", () => {
+  showScreen("importScreen");
 });
 
 // IMPORT SCREEN
 
-$('#import_okButton').addEventListener('click', () => {
-    const address = ($('#import_input') as HTMLInputElement).value;
-    const error = validateUserFriendlyAddress(address, IS_TESTNET);
-    if (error) {
-        alert(error);
-    } else {
-        setMultisigAddress(address);
-    }
+$("#import_okButton").addEventListener("click", () => {
+  const address = ($("#import_input") as HTMLInputElement).value;
+  const error = validateUserFriendlyAddress(address, IS_TESTNET);
+  if (error) {
+    alert(error);
+  } else {
+    setMultisigAddress(address);
+  }
 });
 
-$('#import_backButton').addEventListener('click', () => {
-    showScreen('startScreen')
+$("#import_backButton").addEventListener("click", () => {
+  showScreen("startScreen");
 });
 
 // MULTISIG SCREEN
 
-const MULTISIG_CODE = Cell.fromBase64("te6cckECEgEABJUAART/APSkE/S88sgLAQIBYgIDAsrQM9DTAwFxsJJfA+D6QDAi10nAAJJfA+AC0x8BIMAAkl8E4AHTPwHtRNDT/wEB0wcBAdTTBwEB9ATSAAEB0SiCEPcYUQ+64w8FREPIUAYBy/9QBAHLBxLMAQHLB/QAAQHKAMntVAQFAgEgDA0BnjgG0/8BKLOOEiCE/7qSMCSWUwW68uPw4gWkBd4B0gABAdMHAQHTLwEB1NEjkSaRKuJSMHj0Dm+h8uPvHscF8uPvIPgjvvLgbyD4I6FUbXAGApo2OCaCEHUJf126jroGghCjLFm/uo6p+CgYxwXy4GUD1NEQNBA2RlD4AH+OjSF49HxvpSCRMuMNAbPmWxA1UDSSNDbiUFQT4w1AFVAzBAoJAdT4BwODDPlBMAODCPlBMPgHUAahgSf4AaBw+DaBEgZw+DaggSvscPg2oIEdmHD4NqAipgYioIEFOSagJ6Bw+DgjpIECmCegcPg4oAOmBliggQbgUAWgUAWgQwNw+DdZoAGgHL7y4GT4KFADBwK4AXACyFjPFgEBy//JiCLIywH0APQAywDJcCH5AHTIywISygfL/8nQyIIQnHP7olgKAssfyz8mAcsHUlDMUAsByy8bzCoBygAKlRkBywcIkTDiECRwQImAGIBQ2zwRCACSjkXIWAHLBVAFzxZQA/oCVHEjI+1E7UXtR59byFADzxfJE3dQA8trzMztZ+1l7WR0f+0RmHYBy2vMAc8X7UHt8QHy/8kB+wDbBgLiNgTT/wEB0y8BAdMHAQHT/wEB1NH4KFAFAXACyFjPFgEBy//JiCLIywH0APQAywDJcAH5AHTIywISygfL/8nQG8cF8uBlJvkAGrpRk74ZsPLgZgf4I77y4G9EFFBW+AB/jo0hePR8b6UgkTLjDQGz5lsRCgH6AtdM0NMfASCCEPE4Hlu6jmqCEB0M+9O6jl5sRNMHAQHUIX9wjhdREnj0fG+lMiGZUwK68uBnAqQC3gGzEuZsISDCAPLgbiPCAPLgbVMwu/LgbQH0BCF/cI4XURJ49HxvpTIhmVMCuvLgZwKkAt4BsxLmbCEw0VUjkTDi4w0LABAw0wfUAvsA0QFDv3T/aiaGn/gIDpg4CA6mmDgID6AmkAAIDoiBqvgoD8EdDA4CAWYPEADC+AcDgwz5QTADgwj5QTD4B1AGoYEn+AGgcPg2gRIGcPg2oIEr7HD4NqCBHZhw+DagIqYGIqCBBTkmoCegcPg4I6SBApgnoHD4OKADpgZYoIEG4FAFoFAFoEMDcPg3WaABoADxsMr7UTQ0/8BAdMHAQHU0wcBAfQE0gABAdEjf3COF1ESePR8b6UyIZlTArry4GcCpALeAbMS5mwhUjC68uBsIX9wjhdREnj0fG+lMiGZUwK68uBnAqQC3gGzEuZsITAiwgDy4G4kwgDy4G1SQ7vy4G0BkjN/kQPiA4AFZsMn+CgBAXACyFjPFgEBy//JiCLIywH0APQAywDJcAH5AHTIywISygfL/8nQgEQhCAmMFqAYchWwszwXcsN9YFccUdYcFZ8q18EnjQLz1klHzYNH/nQ==");
-const MULTISIG_ORDER_CODE = Cell.fromBase64('te6cckEBAQEAIwAIQgJjBagGHIVsLM8F3LDfWBXHFHWHBWfKtfBJ40C89ZJR80AoJo0=');
+const MULTISIG_CODE = Cell.fromBase64(
+  "te6cckECGgEABmUAART/APSkE/S88sgLAQIBYgwCAgEgCgMCAUgJBAIBIAYFAVmwyf4KAEBcALIWM8WAQHL/8mIIsjLAfQA9ADLAMlwAfkAdMjLAhLKB8v/ydCAZAgFiCAcA66ZX2omhp/4CA6YOAgOppg4CA+gJpAACA+gJomJG8P7hHC6oYmXo+N9KZEMypgV15cDOBUgFvANmJczYYqRhdeXA2ELw/uEcLqhiZej430pkQzKmBXXlwM4FSAW8A2YlzNhiYEWEAeXA3EmEAeXA2qSHd+XA2gMAUaeZ2omhp/4CA6YOAgOppg4CA+gJpAACA+gJotjCA/SIYgMGD+gc30JhAAm2Cl9IkAFHv3T/aiaGn/gIDpg4CA6mmDgID6AmkAAID6AmiIIy+DAPwR0MCwDC+AcDgwz5QTADgwj5QTD4B1AGoYEn+AGgcPg2gRIGcPg2oIEr7HD4NqCBHZhw+DagIqYGIqCBBTkmoCegcPg4I6SBApgnoHD4OKADpgZYoIEG4FAFoFAFoEMDcPg3WaABoALW0DPQ0wMBcbCSXwPg+kAwItdJwACSXwPgAtMfASDAAJJfBOAB0z8B7UTQ0/8BAdMHAQHU0wcBAfQE0gABAfQE0SmCEPcYUQ+64w9FFVBkE8hQBwHL/1AFAcsHE8wBAcsH9AABAcoA9ADJ7VQVDQPIOiiCEHUJf126j1MoghBzYtCcuo7BNieCEKMsWb+6ji82JoIQDyDmS7qZNvgoGMcF8uBljhQGghDHXqUFupj4KBjHBfLgZZE34uJGFEAzBeMNRhVEAwLjDQRGFlAzBeMNRlQQIxMQDgK+NjcF0/8BAdMvAQHTBwEB0/8BAdTR+ChQBQFwAshYzxYBAcv/yYgiyMsB9AD0AMsAyXAB+QB0yMsCEsoHy//J0BzHBfLgZSP5ABu6UaS+GrDy4GYI+CO+8uBvBANFVxYZDwGw+AB/jtEhePR8b6UgjsMC10zQ0x8BIIIQ8TgeW7qYMNMH1AL7ANGOqCCCEB0M+9O6jhWCEHAFOB66ljQD9ATRA5Ew4kdlVQPjDRA3RhRVIAXikTLiAbPmWxQCtDgG+gD6QAv6RDFTCoMH9A5voTHy4HEL1DDQ0x8hghAPIOZLuo6yW8hQCwHL/1AKzxZQCQHL/8nIghAPIOZLWAYCyx/LPxTMIgHL/wKk+ChwWASAEIBQ2zzjDhIRAbABghDHXqUFuo7B0//T/zDIUA0By/9YzxZYAcv/yFALAcv/AQHL/8kJyciCEMdepQVYBwLLH8s/FcwYzCIBy//4KHBYgBCAUNs8AaSZXwM0N4QP8vAB4kYAEgCIjkDIWAHLBVAEzxZY+gJUcSDtRO1F7UedW8hQA88XyRJxWMtqzO1n7WXtZHN/7RGXcAHLagHPF+1B7fEB8v/JAfsA2wUB0jf4KBnHBfLgZQTU0RUQN0Fg+AB/jtEhePR8b6UgjsMC10zQ0x8BIIIQ8TgeW7qYMNMH1AL7ANGOqCCCEB0M+9O6jhWCEHAFOB66ljQD9ATRA5Ew4kdlVQPjDRA3RhRVIAXikTLiAbPmWxQAxDA1NTU1AdMHAQHUIXh/cI4XVDEy9HxvpTIhmVMCuvLgZwKkAt4BsxLmbDEgwgDy4G4jwgDy4G1TMLvy4G0B9AQheH9wjhdUMTL0fG+lMiGZUwK68uBnAqQC3gGzEuZsMTDRAXA5B9P/AQHSAAEB0wcBAdMvAQHU0SORJ5El4lIwePQOb6Hy4+8fxwXy4+8g+CO+8uBvIPgjoVRugBYB1PgHA4MM+UEwA4MI+UEw+AdQBqGBJ/gBoHD4NoESBnD4NqCBK+xw+DaggR2YcPg2oCKmBiKggQU5JqAnoHD4OCOkgQKYJ6Bw+DigA6YGWKCBBuBQBaBQBaBDA3D4N1mgAaAdvvLgZPgoUAMXArgBcALIWM8WAQHL/8mIIsjLAfQA9ADLAMlwIfkAdMjLAhLKB8v/ydDIghCcc/uiWAsCyx/LPycBywdSYMxQDAHLLxzMKwHKAAuVGgHLBwmRMOIQJXBAmoAYgFDbPBkYAJKORchYAcsFUAXPFlAD+gJUcSMj7UTtRe1Hn1vIUAPPF8kTd1ADy2vMzO1n7WXtZHR/7RGYdgHLa8wBzxftQe3xAfL/yQH7ANsGCEICYwWoBhyFbCzPBdyw31gVxxR1hwVnyrXwSeNAvPWSUfPpXFv+"
+);
+const MULTISIG_ORDER_CODE = Cell.fromBase64(
+  "te6cckEBAQEAIwAIQgJjBagGHIVsLM8F3LDfWBXHFHWHBWfKtfBJ40C89ZJR80AoJo0="
+);
 
 let currentMultisigAddress: string | undefined = undefined;
 let currentMultisigInfo: MultisigInfo | undefined = undefined;
 let updateMultisigTimeoutId: any = -1;
 
 const clearMultisig = (): void => {
-    currentMultisigAddress = undefined;
-    currentMultisigInfo = undefined;
-    clearTimeout(updateMultisigTimeoutId);
-}
+  currentMultisigAddress = undefined;
+  currentMultisigInfo = undefined;
+  clearTimeout(updateMultisigTimeoutId);
+};
 
 const renderCurrentMultisigInfo = (): void => {
-    const {
-        tonBalance,
-        threshold,
-        signers,
-        proposers,
-        allowArbitraryOrderSeqno,
-        nextOderSeqno,
-        lastOrders
-    } = currentMultisigInfo;
+  const {
+    tonBalance,
+    threshold,
+    signers,
+    proposers,
+    allowArbitraryOrderSeqno,
+    nextOderSeqno,
+    lastOrders,
+  } = currentMultisigInfo;
 
-    // Render Multisig Info
+  // Render Multisig Info
 
-    $('#multisig_tonBalance').innerText = fromNano(tonBalance) + ' TON';
+  $("#multisig_tonBalance").innerText = fromNano(tonBalance) + " TON";
 
-    $('#multisig_threshold').innerText = threshold + '/' + signers.length;
+  $("#multisig_threshold").innerText = threshold + "/" + signers.length;
 
-    $('#multisig_orderId').innerText = allowArbitraryOrderSeqno ? 'Arbitrary' : nextOderSeqno.toString();
+  $("#multisig_orderId").innerText = allowArbitraryOrderSeqno
+    ? "Arbitrary"
+    : nextOderSeqno.toString();
 
-    // Signers
+  // Signers
 
-    let signersHTML = '';
-    for (let i = 0; i < signers.length; i++) {
-        const signer = signers[i];
-        const addressString = makeAddressLink(signer);
-        signersHTML += (`<div>#${i + 1} — ${addressString}${equalsMsgAddresses(signer.address, myAddress) ? YOU_BADGE : ''}</div>`);
+  let signersHTML = "";
+  for (let i = 0; i < signers.length; i++) {
+    const signer = signers[i];
+    const addressString = makeAddressLink(signer);
+    signersHTML += `<div>#${i + 1} — ${addressString}${
+      equalsMsgAddresses(signer.address, myAddress) ? YOU_BADGE : ""
+    }</div>`;
+  }
+  $("#multisig_signersList").innerHTML = signersHTML;
+
+  // Proposers
+
+  if (proposers.length > 0) {
+    let proposersHTML = "";
+    for (let i = 0; i < proposers.length; i++) {
+      const proposer = proposers[i];
+      const addressString = makeAddressLink(proposer);
+      proposersHTML += `<div>#${i + 1} — ${addressString}${
+        equalsMsgAddresses(proposer.address, myAddress) ? YOU_BADGE : ""
+      }</div>`;
     }
-    $('#multisig_signersList').innerHTML = signersHTML;
+    $("#multisig_proposersList").innerHTML = proposersHTML;
+  } else {
+    $("#multisig_proposersList").innerHTML = "No proposers";
+  }
 
-    // Proposers
+  // Render Last Orders
 
-    if (proposers.length > 0) {
-        let proposersHTML = '';
-        for (let i = 0; i < proposers.length; i++) {
-            const proposer = proposers[i];
-            const addressString = makeAddressLink(proposer)
-            proposersHTML += (`<div>#${i + 1} — ${addressString}${equalsMsgAddresses(proposer.address, myAddress) ? YOU_BADGE : ''}</div>`);
-        }
-        $('#multisig_proposersList').innerHTML = proposersHTML;
+  const formatOrderType = (lastOrder: LastOrder): string => {
+    switch (lastOrder.type) {
+      case "new":
+        return "New order";
+      case "execute":
+        return "Execute order";
+      case "pending":
+        return "Pending order";
+      case "executed":
+        return "Executed order";
+    }
+    throw new Error("unknown order type " + lastOrder.type);
+  };
+
+  const formatOrder = (lastOrder: LastOrder): string => {
+    if (lastOrder.errorMessage) {
+      if (lastOrder.errorMessage.startsWith("Contract not active")) return ``;
+      if (lastOrder.errorMessage.startsWith("Failed")) {
+        return `<div class="multisig_lastOrder" order-id="${
+          lastOrder.order.id
+        }" order-address="${addressToString(
+          lastOrder.order.address
+        )}"><span class="orderListItem_title">Failed Order #${
+          lastOrder.order.id
+        }</span> — Execution error</div>`;
+      }
+      return `<div class="multisig_lastOrder" order-id="${
+        lastOrder.order.id
+      }" order-address="${addressToString(
+        lastOrder.order.address
+      )}"><span class="orderListItem_title">Invalid Order #${
+        lastOrder.order.id
+      }</span> — ${lastOrder.errorMessage}</div>`;
     } else {
-        $('#multisig_proposersList').innerHTML = 'No proposers';
-    }
+      const isExpired = lastOrder.orderInfo
+        ? new Date().getTime() > lastOrder.orderInfo.expiresAt.getTime()
+        : false;
+      const actionText = isExpired
+        ? "Expired order "
+        : formatOrderType(lastOrder);
+      let text = `<span class="orderListItem_title">${actionText} #${lastOrder.order.id}</span>`;
 
-    // Render Last Orders
+      if (lastOrder.type === "pending" && !isExpired) {
+        text += ` — ${lastOrder.orderInfo.approvalsNum}/${lastOrder.orderInfo.threshold}`;
+      }
 
-    const formatOrderType = (lastOrder: LastOrder): string => {
-        switch (lastOrder.type) {
-            case 'new':
-                return 'New order';
-            case 'execute':
-                return 'Execute order';
-            case 'pending':
-                return 'Pending order';
-            case 'executed':
-                return 'Executed order'
+      if (lastOrder.type === "pending" && myAddress) {
+        const myIndex = lastOrder.orderInfo.signers.findIndex((signer) =>
+          signer.address.equals(myAddress)
+        );
+        if (myIndex > -1) {
+          const mask = 1 << myIndex;
+          const isSigned = lastOrder.orderInfo.approvalsMask & mask;
+
+          text += isSigned ? " — You approved" : ` — You haven't approved yet`;
         }
-        throw new Error('unknown order type ' + lastOrder.type);
+      }
+
+      return `<div class="multisig_lastOrder" order-id="${
+        lastOrder.order.id
+      }" order-address="${addressToString(
+        lastOrder.order.address
+      )}">${text}</div>`;
+    }
+  };
+
+  let lastOrdersHTML = "";
+  let wasPending = false;
+  let wasExecuted = false;
+
+  for (const lastOrder of lastOrders) {
+    if (lastOrder.type == "executed") {
+      if (!wasExecuted) {
+        lastOrdersHTML += '<div class="label">Old orders:</div>';
+        wasExecuted = true;
+      }
+    } else if (lastOrder.type === "pending") {
+      if (!wasPending) {
+        lastOrdersHTML += '<div class="label">Pending orders:</div>';
+        wasPending = true;
+      }
     }
 
-    const formatOrder = (lastOrder: LastOrder): string => {
-        if (lastOrder.errorMessage) {
-            if (lastOrder.errorMessage.startsWith('Contract not active')) return ``;
-            if (lastOrder.errorMessage.startsWith('Failed')) {
-                return `<div class="multisig_lastOrder" order-id="${lastOrder.order.id}" order-address="${addressToString(lastOrder.order.address)}"><span class="orderListItem_title">Failed Order #${lastOrder.order.id}</span> — Execution error</div>`;
-            }
-            return `<div class="multisig_lastOrder" order-id="${lastOrder.order.id}" order-address="${addressToString(lastOrder.order.address)}"><span class="orderListItem_title">Invalid Order #${lastOrder.order.id}</span> — ${lastOrder.errorMessage}</div>`;
-        } else {
-            const isExpired = lastOrder.orderInfo ? (new Date()).getTime() > lastOrder.orderInfo.expiresAt.getTime() : false;
-            const actionText = isExpired ? 'Expired order ' : formatOrderType(lastOrder);
-            let text = `<span class="orderListItem_title">${actionText} #${lastOrder.order.id}</span>`;
+    lastOrdersHTML += formatOrder(lastOrder);
+  }
 
-            if (lastOrder.type === 'pending' && !isExpired) {
-                text += ` — ${lastOrder.orderInfo.approvalsNum}/${lastOrder.orderInfo.threshold}`;
-            }
+  $("#mainScreen_ordersList").innerHTML = lastOrdersHTML;
 
-            if (lastOrder.type === 'pending' && myAddress) {
-                const myIndex = lastOrder.orderInfo.signers.findIndex(signer => signer.address.equals(myAddress));
-                if (myIndex > -1) {
-                    const mask = 1 << myIndex;
-                    const isSigned = lastOrder.orderInfo.approvalsMask & mask;
-
-                    text += isSigned ? ' — You approved' : ` — You haven't approved yet`;
-                }
-            }
-
-            return `<div class="multisig_lastOrder" order-id="${lastOrder.order.id}" order-address="${addressToString(lastOrder.order.address)}">${text}</div>`;
-        }
-    }
-
-    let lastOrdersHTML = '';
-    let wasPending = false;
-    let wasExecuted = false;
-
-    for (const lastOrder of lastOrders) {
-        if (lastOrder.type == 'executed') {
-            if (!wasExecuted) {
-                lastOrdersHTML += '<div class="label">Old orders:</div>'
-                wasExecuted = true;
-            }
-        } else if (lastOrder.type === 'pending') {
-            if (!wasPending) {
-                lastOrdersHTML += '<div class="label">Pending orders:</div>'
-                wasPending = true;
-            }
-        }
-
-        lastOrdersHTML += formatOrder(lastOrder);
-    }
-
-    $('#mainScreen_ordersList').innerHTML = lastOrdersHTML;
-
-    $$('.multisig_lastOrder').forEach(div => {
-        div.addEventListener('click', (e) => {
-            const attributes = (e.currentTarget as HTMLElement).attributes;
-            const orderAddressString = attributes.getNamedItem('order-address').value;
-            const orderId = BigInt(attributes.getNamedItem('order-id').value);
-            setOrderId(orderId, orderAddressString);
-        })
+  $$(".multisig_lastOrder").forEach((div) => {
+    div.addEventListener("click", (e) => {
+      const attributes = (e.currentTarget as HTMLElement).attributes;
+      const orderAddressString = attributes.getNamedItem("order-address").value;
+      const orderId = BigInt(attributes.getNamedItem("order-id").value);
+      setOrderId(orderId, orderAddressString);
     });
-}
+  });
+};
 
-const updateMultisig = async (multisigAddress: string, isFirst: boolean): Promise<void> => {
-    try {
-        // Load
+const updateMultisig = async (
+  multisigAddress: string,
+  isFirst: boolean
+): Promise<void> => {
+  try {
+    // Load
 
-        const multisigInfo = await checkMultisig(Address.parseFriendly(multisigAddress), MULTISIG_CODE, MULTISIG_ORDER_CODE, IS_TESTNET, 'aggregate', isFirst);
+    const multisigInfo = await checkMultisig(
+      Address.parseFriendly(multisigAddress),
+      MULTISIG_CODE,
+      MULTISIG_ORDER_CODE,
+      IS_TESTNET,
+      "aggregate",
+      isFirst
+    );
 
-        // Render if still relevant
+    // Render if still relevant
 
-        if (currentMultisigAddress !== multisigAddress) return;
-        currentMultisigInfo = multisigInfo;
+    if (currentMultisigAddress !== multisigAddress) return;
+    currentMultisigInfo = multisigInfo;
 
-        renderCurrentMultisigInfo();
-        toggle($('#multisig_content'), true);
-        toggle($('#multisig_error'), false);
+    renderCurrentMultisigInfo();
+    toggle($("#multisig_content"), true);
+    toggle($("#multisig_error"), false);
+  } catch (e) {
+    console.error(e);
 
-    } catch (e) {
-        console.error(e);
-
-        // Render error if still relevant
-        if (currentMultisigAddress !== multisigAddress) return;
-        if (isFirst || !e?.message?.startsWith('Timeout')) {
-            toggle($('#multisig_content'), false);
-            toggle($('#multisig_error'), true);
-            $('#multisig_error').innerText = e.message;
-        }
+    // Render error if still relevant
+    if (currentMultisigAddress !== multisigAddress) return;
+    if (isFirst || !e?.message?.startsWith("Timeout")) {
+      toggle($("#multisig_content"), false);
+      toggle($("#multisig_error"), true);
+      $("#multisig_error").innerText = e.message;
     }
+  }
 
-    clearTimeout(updateMultisigTimeoutId);
-    updateMultisigTimeoutId = setTimeout(() => updateMultisig(multisigAddress, false), 5000);
+  clearTimeout(updateMultisigTimeoutId);
+  updateMultisigTimeoutId = setTimeout(
+    () => updateMultisig(multisigAddress, false),
+    5000
+  );
 
-    if (isFirst) {
-        showScreen('multisigScreen');
-    }
-}
+  if (isFirst) {
+    showScreen("multisigScreen");
+  }
+};
 
-const setMultisigAddress = async (newMultisigAddress: string, queuedOrderId?: bigint): Promise<void> => {
-    showScreen('loadingScreen');
-    clearMultisig();
+const setMultisigAddress = async (
+  newMultisigAddress: string,
+  queuedOrderId?: bigint
+): Promise<void> => {
+  showScreen("loadingScreen");
+  clearMultisig();
 
-    currentMultisigAddress = newMultisigAddress;
-    localStorage.setItem('multisigAddress', newMultisigAddress);
-    pushUrlState(newMultisigAddress, queuedOrderId);
+  currentMultisigAddress = newMultisigAddress;
+  localStorage.setItem("multisigAddress", newMultisigAddress);
+  pushUrlState(newMultisigAddress, queuedOrderId);
 
-    const multisigAddress = Address.parseFriendly(currentMultisigAddress);
-    multisigAddress.isBounceable = true;
-    multisigAddress.isTestOnly = IS_TESTNET;
-    $('#mulisig_address').innerHTML = makeAddressLink(multisigAddress);
+  const multisigAddress = Address.parseFriendly(currentMultisigAddress);
+  multisigAddress.isBounceable = true;
+  multisigAddress.isTestOnly = IS_TESTNET;
+  $("#mulisig_address").innerHTML = makeAddressLink(multisigAddress);
 
-    await updateMultisig(newMultisigAddress, true);
-}
+  await updateMultisig(newMultisigAddress, true);
+};
 
-$('#multisig_logoutButton').addEventListener('click', () => {
-    localStorage.removeItem('multisigAddress');
-    clearMultisig();
-    showScreen('startScreen');
+$("#multisig_logoutButton").addEventListener("click", () => {
+  localStorage.removeItem("multisigAddress");
+  clearMultisig();
+  showScreen("startScreen");
 });
 
-$('#multisig_createNewOrderButton').addEventListener('click', () => {
-    showScreen('newOrderScreen');
+$("#multisig_createNewOrderButton").addEventListener("click", () => {
+  showScreen("newOrderScreen");
 });
 
-$('#multisig_updateButton').addEventListener('click', () => {
-    showNewMultisigScreen('update');
+$("#multisig_updateButton").addEventListener("click", () => {
+  showNewMultisigScreen("update");
 });
 
 // ORDER SCREEN
@@ -367,1333 +530,1569 @@ let currentOrderInfo: MultisigOrderInfo | undefined = undefined;
 let updateOrderTimeoutId: any = -1;
 
 const clearOrder = (): void => {
-    currentOrderId = undefined;
-    currentOrderInfo = undefined;
-    clearTimeout(updateOrderTimeoutId);
-}
-const updateApproveButton = (isApproving: boolean, isLastApprove: boolean): void => {
-    if (isLastApprove) {
-        $('#order_approveButton').innerText = isApproving ? 'Executing..' : 'Execute';
-    } else {
-        $('#order_approveButton').innerText = isApproving ? 'Approving..' : 'Approve';
-    }
-    ($('#order_approveButton') as HTMLButtonElement).disabled = isApproving;
-}
+  currentOrderId = undefined;
+  currentOrderInfo = undefined;
+  clearTimeout(updateOrderTimeoutId);
+};
+const updateApproveButton = (
+  isApproving: boolean,
+  isLastApprove: boolean
+): void => {
+  if (isLastApprove) {
+    $("#order_approveButton").innerText = isApproving
+      ? "Executing.."
+      : "Execute";
+  } else {
+    $("#order_approveButton").innerText = isApproving
+      ? "Approving.."
+      : "Approve";
+  }
+  ($("#order_approveButton") as HTMLButtonElement).disabled = isApproving;
+};
 
 const renderCurrentOrderInfo = (): void => {
-    const {
-        tonBalance,
-        actions,
-        isExecuted,
-        approvalsNum,
-        approvalsMask,
-        threshold,
-        signers,
-        expiresAt
-    } = currentOrderInfo;
+  const {
+    tonBalance,
+    actions,
+    isExecuted,
+    approvalsNum,
+    approvalsMask,
+    threshold,
+    signers,
+    expiresAt,
+  } = currentOrderInfo;
 
-    const isExpired = (new Date()).getTime() > expiresAt.getTime();
+  const isExpired = new Date().getTime() > expiresAt.getTime();
 
-    $('#order_tonBalance').innerText = fromNano(tonBalance) + ' TON';
-    $('#order_executed').innerText = isExecuted ? 'Yes' : 'Not yet';
-    $('#order_approvals').innerText = approvalsNum + '/' + threshold;
-    $('#order_expiresAt').innerText = (isExpired ? '❌ EXPIRED - ' : '') + expiresAt.toString();
+  $("#order_tonBalance").innerText = fromNano(tonBalance) + " TON";
+  $("#order_executed").innerText = isExecuted ? "Yes" : "Not yet";
+  $("#order_approvals").innerText = approvalsNum + "/" + threshold;
+  $("#order_expiresAt").innerText =
+    (isExpired ? "❌ EXPIRED - " : "") + expiresAt.toString();
 
-    let isApprovedByMe = false;
-    let signersHTML = '';
-    for (let i = 0; i < signers.length; i++) {
-        const signer = signers[i];
-        const addressString = makeAddressLink(signer);
-        const mask = 1 << i;
-        const isSigned = approvalsMask & mask;
-        if (myAddress && isSigned && signer.address.equals(myAddress)) {
-            isApprovedByMe = true;
-        }
-        signersHTML += (`<div>#${i + 1} — ${addressString} — ${isSigned ? '✅' : '❌'}${equalsMsgAddresses(signer.address, myAddress) ? YOU_BADGE : ''}</div>`);
+  let isApprovedByMe = false;
+  let signersHTML = "";
+  for (let i = 0; i < signers.length; i++) {
+    const signer = signers[i];
+    const addressString = makeAddressLink(signer);
+    const mask = 1 << i;
+    const isSigned = approvalsMask & mask;
+    if (myAddress && isSigned && signer.address.equals(myAddress)) {
+      isApprovedByMe = true;
     }
-    $('#order_signersList').innerHTML = signersHTML;
+    signersHTML += `<div>#${i + 1} — ${addressString} — ${
+      isSigned ? "✅" : "❌"
+    }${equalsMsgAddresses(signer.address, myAddress) ? YOU_BADGE : ""}</div>`;
+  }
+  $("#order_signersList").innerHTML = signersHTML;
 
-    let actionsHTML = '';
-    for (const action of actions) {
-        actionsHTML += action;
+  let actionsHTML = "";
+  for (const action of actions) {
+    actionsHTML += action;
+  }
+
+  if (actions.length === 0) {
+    $("#order_actionsTitle").innerText = "No actions";
+  } else if (actions.length === 1) {
+    $("#order_actionsTitle").innerText = "One action:";
+  } else {
+    $("#order_actionsTitle").innerText = actions.length + " actions:";
+  }
+  $("#order_actions").innerHTML = actionsHTML;
+
+  let approvingTime = Number(
+    localStorage.getItem(
+      currentMultisigAddress + "_" + currentOrderId + "_approve"
+    )
+  );
+
+  if (Date.now() - approvingTime > 120000 && !isApprovedByMe) {
+    approvingTime = 0;
+    localStorage.removeItem(
+      currentMultisigAddress + "_" + currentOrderId + "_approve"
+    );
+  }
+
+  updateApproveButton(!!approvingTime, approvalsNum === threshold - 1);
+
+  toggle(
+    $("#order_approveButton"),
+    !isExecuted && !isExpired && !isApprovedByMe
+  );
+  toggle($("#order_approveNote"), !isExecuted && !isExpired && !isApprovedByMe);
+};
+
+const updateOrder = async (
+  orderAddress: AddressInfo,
+  orderId: bigint,
+  isFirstTime: boolean
+): Promise<void> => {
+  try {
+    // Load
+
+    const orderInfo = await checkMultisigOrder(
+      orderAddress,
+      MULTISIG_ORDER_CODE,
+      currentMultisigInfo,
+      IS_TESTNET,
+      isFirstTime
+    );
+
+    // Render  if still relevant
+    if (currentOrderId !== orderId) return;
+    currentOrderInfo = orderInfo;
+
+    renderCurrentOrderInfo();
+    toggle($("#order_content"), true);
+    toggle($("#order_error"), false);
+  } catch (e) {
+    console.error(e);
+
+    // Render error if still relevant
+    if (currentOrderId !== orderId) return;
+    if (isFirstTime || !e?.message?.startsWith("Timeout")) {
+      toggle($("#order_content"), false);
+      toggle($("#order_error"), true);
+      $("#order_error").innerText = e.message;
     }
+  }
 
-    if (actions.length === 0) {
-        $('#order_actionsTitle').innerText = 'No actions';
-    } else if (actions.length === 1) {
-        $('#order_actionsTitle').innerText = 'One action:';
-    } else {
-        $('#order_actionsTitle').innerText = actions.length + ' actions:';
-    }
-    $('#order_actions').innerHTML = actionsHTML;
+  clearTimeout(updateOrderTimeoutId);
+  updateOrderTimeoutId = setTimeout(
+    () => updateOrder(orderAddress, orderId, false),
+    5000
+  );
 
-    let approvingTime = Number(localStorage.getItem(currentMultisigAddress + '_' + currentOrderId + '_approve'));
+  if (isFirstTime) {
+    showScreen("orderScreen");
+  }
+};
 
-    if (Date.now() - approvingTime > 120000 && !isApprovedByMe) {
-        approvingTime = 0;
-        localStorage.removeItem(currentMultisigAddress + '_' + currentOrderId + '_approve');
-    }
+const setOrderId = async (
+  newOrderId: bigint,
+  newOrderAddress?: string
+): Promise<void> => {
+  if (!currentMultisigInfo) throw new Error("setOrderId: no multisig info");
 
-    updateApproveButton(!!approvingTime, approvalsNum === threshold - 1);
+  showScreen("loadingScreen");
+  clearOrder();
+  currentOrderId = newOrderId;
+  pushUrlState(currentMultisigAddress, newOrderId);
 
-    toggle($('#order_approveButton'), !isExecuted && !isExpired && !isApprovedByMe);
-    toggle($('#order_approveNote'), !isExecuted && !isExpired && !isApprovedByMe);
-}
+  if (newOrderAddress === undefined) {
+    const tempOrder = Order.createFromConfig(
+      {
+        multisig: Address.parseFriendly(currentMultisigAddress).address,
+        orderSeqno: newOrderId,
+      },
+      MULTISIG_ORDER_CODE
+    );
 
-const updateOrder = async (orderAddress: AddressInfo, orderId: bigint, isFirstTime: boolean): Promise<void> => {
-    try {
-        // Load
+    newOrderAddress = formatContractAddress(tempOrder.address);
+  }
 
-        const orderInfo = await checkMultisigOrder(orderAddress, MULTISIG_ORDER_CODE, currentMultisigInfo, IS_TESTNET, isFirstTime);
+  $("#order_id").innerText = "#" + currentOrderId;
 
-        // Render  if still relevant
-        if (currentOrderId !== orderId) return;
-        currentOrderInfo = orderInfo;
+  const orderAddress = Address.parseFriendly(newOrderAddress);
+  orderAddress.isBounceable = true;
+  orderAddress.isTestOnly = IS_TESTNET;
+  $("#order_address").innerHTML = makeAddressLink(orderAddress);
 
-        renderCurrentOrderInfo();
-        toggle($('#order_content'), true);
-        toggle($('#order_error'), false);
+  await updateOrder(orderAddress, newOrderId, true);
+};
 
-    } catch (e) {
-        console.error(e);
-
-        // Render error if still relevant
-        if (currentOrderId !== orderId) return;
-        if (isFirstTime || !e?.message?.startsWith('Timeout')) {
-            toggle($('#order_content'), false);
-            toggle($('#order_error'), true);
-            $('#order_error').innerText = e.message;
-        }
-    }
-
-    clearTimeout(updateOrderTimeoutId);
-    updateOrderTimeoutId = setTimeout(() => updateOrder(orderAddress, orderId, false), 5000);
-
-    if (isFirstTime) {
-        showScreen('orderScreen');
-    }
-}
-
-const setOrderId = async (newOrderId: bigint, newOrderAddress?: string): Promise<void> => {
-    if (!currentMultisigInfo) throw new Error('setOrderId: no multisig info');
-
-    showScreen('loadingScreen');
-    clearOrder();
-    currentOrderId = newOrderId;
-    pushUrlState(currentMultisigAddress, newOrderId);
-
-    if (newOrderAddress === undefined) {
-        const tempOrder = Order.createFromConfig({
-            multisig: Address.parseFriendly(currentMultisigAddress).address,
-            orderSeqno: newOrderId
-        }, MULTISIG_ORDER_CODE);
-
-        newOrderAddress = formatContractAddress(tempOrder.address);
-    }
-
-    $('#order_id').innerText = '#' + currentOrderId;
-
-    const orderAddress = Address.parseFriendly(newOrderAddress);
-    orderAddress.isBounceable = true;
-    orderAddress.isTestOnly = IS_TESTNET;
-    $('#order_address').innerHTML = makeAddressLink(orderAddress);
-
-    await updateOrder(orderAddress, newOrderId, true);
-}
-
-$('#order_backButton').addEventListener('click', () => {
-    pushUrlState(currentMultisigAddress);
-    clearOrder();
-    showScreen('multisigScreen');
+$("#order_backButton").addEventListener("click", () => {
+  pushUrlState(currentMultisigAddress);
+  clearOrder();
+  showScreen("multisigScreen");
 });
 
-$('#order_approveButton').addEventListener('click', async () => {
-    if (!currentMultisigAddress) throw new Error('approve !currentMultisigAddress');
-    if (!currentOrderInfo) throw new Error('approve !currentOrderInfo');
+$("#order_approveButton").addEventListener("click", async () => {
+  if (!currentMultisigAddress)
+    throw new Error("approve !currentMultisigAddress");
+  if (!currentOrderInfo) throw new Error("approve !currentOrderInfo");
 
-    const multisigAddress = currentMultisigAddress;
-    const orderInfo = currentOrderInfo;
+  const multisigAddress = currentMultisigAddress;
+  const orderInfo = currentOrderInfo;
 
-    if (!myAddress) {
-        alert('Please connect wallet');
-        return;
+  if (!myAddress) {
+    alert("Please connect wallet");
+    return;
+  }
+
+  const mySignerIndex = orderInfo.signers.findIndex((address) =>
+    address.address.equals(myAddress)
+  );
+
+  if (mySignerIndex == -1) {
+    alert("You are not signer");
+    return;
+  }
+
+  const orderAddressString = addressToString(orderInfo.address);
+  const amount = DEFAULT_AMOUNT.toString();
+  const payload = beginCell()
+    .storeUint(0, 32)
+    .storeStringTail("approve")
+    .endCell()
+    .toBoc()
+    .toString("base64");
+
+  console.log({ orderAddressString, amount });
+
+  const transaction = {
+    validUntil: Math.floor(Date.now() / 1000) + 60, // 1 minute
+    messages: [
+      {
+        address: orderAddressString,
+        amount: amount,
+        payload: payload, // raw one-cell BoC encoded in Base64
+      },
+    ],
+  };
+
+  updateApproveButton(true, orderInfo.approvalsNum === orderInfo.threshold - 1);
+  localStorage.setItem(
+    multisigAddress + "_" + orderInfo.orderId + "_approve",
+    Date.now().toString()
+  );
+
+  try {
+    const result = await tonConnectUI.sendTransaction(transaction);
+  } catch (e) {
+    console.error(e);
+    localStorage.removeItem(
+      multisigAddress + "_" + orderInfo.orderId + "_approve"
+    );
+
+    if (
+      currentMultisigAddress === multisigAddress &&
+      currentOrderId === orderInfo.orderId
+    ) {
+      updateApproveButton(
+        false,
+        orderInfo.approvalsNum === orderInfo.threshold - 1
+      );
     }
-
-    const mySignerIndex = orderInfo.signers.findIndex(address => address.address.equals(myAddress));
-
-    if (mySignerIndex == -1) {
-        alert('You are not signer');
-        return;
-    }
-
-    const orderAddressString = addressToString(orderInfo.address);
-    const amount = DEFAULT_AMOUNT.toString();
-    const payload = beginCell().storeUint(0, 32).storeStringTail('approve').endCell().toBoc().toString('base64');
-
-    console.log({orderAddressString, amount})
-
-    const transaction = {
-        validUntil: Math.floor(Date.now() / 1000) + 60, // 1 minute
-        messages: [
-            {
-                address: orderAddressString,
-                amount: amount,
-                payload: payload,  // raw one-cell BoC encoded in Base64
-            }
-        ]
-    }
-
-    updateApproveButton(true, orderInfo.approvalsNum === orderInfo.threshold - 1);
-    localStorage.setItem(multisigAddress + '_' + orderInfo.orderId + '_approve', Date.now().toString());
-
-    try {
-        const result = await tonConnectUI.sendTransaction(transaction);
-    } catch (e) {
-        console.error(e);
-        localStorage.removeItem(multisigAddress + '_' + orderInfo.orderId + '_approve');
-
-        if (currentMultisigAddress === multisigAddress && currentOrderId === orderInfo.orderId) {
-            updateApproveButton(false, orderInfo.approvalsNum === orderInfo.threshold - 1);
-        }
-    }
+  }
 });
 
 // NEW ORDER
 
-type FieldType = 'TON' | 'Jetton' | 'Address' | 'URL' | 'Status';
+type FieldType = "TON" | "Jetton" | "Address" | "URL" | "Status" | "String";
 
 interface ValidatedValue {
-    value?: any;
-    error?: string;
+  value?: any;
+  error?: string;
 }
 
-const validateValue = (fieldName: string, value: string, fieldType: FieldType): ValidatedValue => {
-    const makeError = (s: string): ValidatedValue => {
-        return {error: fieldName + ': ' + s};
+const validateValue = (
+  fieldName: string,
+  value: string,
+  fieldType: FieldType
+): ValidatedValue => {
+  const makeError = (s: string): ValidatedValue => {
+    return { error: fieldName + ": " + s };
+  };
+
+  const makeValue = (x: any): ValidatedValue => {
+    return { value: x };
+  };
+
+  const parseBigInt = (inputAmount: string): ValidatedValue => {
+    try {
+      const units = BigInt(inputAmount);
+
+      if (units <= 0) {
+        return makeError("Enter positive amount");
+      }
+
+      return makeValue(units);
+    } catch (e: any) {
+      return makeError("Invalid amount");
     }
+  };
 
-    const makeValue = (x: any): ValidatedValue => {
-        return {value: x};
+  const parseAmount = (
+    inputAmount: string,
+    decimals: number
+  ): ValidatedValue => {
+    try {
+      const units = toUnits(inputAmount, decimals);
+
+      if (units <= 0) {
+        return makeError("Enter positive amount");
+      }
+
+      return makeValue(units);
+    } catch (e: any) {
+      return makeError("Invalid amount");
     }
+  };
 
-    const parseBigInt = (inputAmount: string): ValidatedValue => {
-        try {
-            const units = BigInt(inputAmount);
+  if (value === null || value === undefined || value === "") {
+    return makeError(`Empty`);
+  }
 
-            if (units <= 0) {
-                return makeError('Enter positive amount');
-            }
+  switch (fieldType) {
+    case "TON":
+      return parseAmount(value, 9);
 
-            return makeValue(units);
-        } catch (e: any) {
-            return makeError('Invalid amount');
-        }
-    }
+    case "Jetton":
+      return parseBigInt(value);
 
-    const parseAmount = (inputAmount: string, decimals: number): ValidatedValue => {
-        try {
-            const units = toUnits(inputAmount, decimals);
+    case "Address":
+      if (!Address.isFriendly(value)) {
+        return makeError("Invalid Address");
+      }
+      const address = Address.parseFriendly(value);
+      if (address.isTestOnly && !IS_TESTNET) {
+        return makeError("Please enter mainnet address");
+      }
+      return makeValue(address);
 
-            if (units <= 0) {
-                return makeError('Enter positive amount');
-            }
+    case "URL":
+      if (!value.startsWith("https://")) {
+        return makeError("Invalid URL");
+      }
+      return makeValue(value);
 
-            return makeValue(units);
-        } catch (e: any) {
-            return makeError('Invalid amount');
-        }
-    }
-
-    if (value === null || value === undefined || value === '') {
-        return makeError(`Empty`);
-    }
-
-    switch (fieldType) {
-        case 'TON':
-            return parseAmount(value, 9);
-
-        case 'Jetton':
-            return parseBigInt(value);
-
-        case 'Address':
-            if (!Address.isFriendly(value)) {
-                return makeError('Invalid Address');
-            }
-            const address = Address.parseFriendly(value);
-            if (address.isTestOnly && !IS_TESTNET) {
-                return makeError("Please enter mainnet address");
-            }
-            return makeValue(address);
-
-        case 'URL':
-            if (!value.startsWith('https://')) {
-                return makeError('Invalid URL');
-            }
-            return makeValue(value);
-
-        case 'Status':
-            if (LOCK_TYPES.indexOf(value) > -1) {
-                return makeValue(value);
-            } else {
-                return makeError('Invalid status. Please use: ' + LOCK_TYPES.join(', '));
-            }
-    }
-}
+    case "Status":
+      if (LOCK_TYPES.indexOf(value) > -1) {
+        return makeValue(value);
+      } else {
+        return makeError(
+          "Invalid status. Please use: " + LOCK_TYPES.join(", ")
+        );
+      }
+    case "String":
+      return makeValue(value);
+  }
+};
 
 interface OrderField {
-    name: string;
-    type: FieldType;
+  name: string;
+  type: FieldType;
 }
 
 interface MakeMessageResult {
-    toAddress: AddressInfo;
-    tonAmount: bigint;
-    body: Cell;
+  toAddress: AddressInfo;
+  tonAmount: bigint;
+  body: Cell;
 }
 
 interface OrderType {
-    name: string;
-    fields: { [key: string]: OrderField };
-    check?: (values: { [key: string]: any }) => Promise<ValidatedValue>;
-    makeMessage: (values: { [key: string]: any }) => Promise<MakeMessageResult>;
+  name: string;
+  fields: { [key: string]: OrderField };
+  check?: (values: { [key: string]: any }) => Promise<ValidatedValue>;
+  makeMessage: (values: { [key: string]: any }) => Promise<MakeMessageResult>;
 }
 
-const AMOUNT_TO_SEND = toNano('0.2'); // 0.2 TON
-const DEFAULT_AMOUNT = toNano('0.1'); // 0.1 TON
-const DEFAULT_INTERNAL_AMOUNT = toNano('0.05'); // 0.05 TON
+const AMOUNT_TO_SEND = toNano("0.02"); // 0.2 TON
+const DEFAULT_AMOUNT = toNano("0.08"); // 0.1 TON
+const DEFAULT_INTERNAL_AMOUNT = toNano("0.005"); // 0.05 TON
 
-const checkJettonMinterAdmin = async (values: { [key: string]: any }): Promise<ValidatedValue> => {
-    try {
-        const multisigInfo = currentMultisigInfo;
+const checkJettonMinterAdmin = async (values: {
+  [key: string]: any;
+}): Promise<ValidatedValue> => {
+  try {
+    const multisigInfo = currentMultisigInfo;
 
-        const jettonMinterInfo = await checkJettonMinter(values.jettonMinterAddress, IS_TESTNET, false);
+    const jettonMinterInfo = await checkJettonMinter(
+      values.jettonMinterAddress,
+      IS_TESTNET,
+      false
+    );
 
-        if (!multisigInfo.address.address.equals(jettonMinterInfo.adminAddress)) {
-            return {error: "Multisig is not admin of this jetton"};
-        }
-
-        return {value: jettonMinterInfo};
-    } catch (e: any) {
-        console.error(e);
-        return {error: 'Jetton-minter check error'};
+    if (!multisigInfo.address.address.equals(jettonMinterInfo.adminAddress)) {
+      return { error: "Multisig is not admin of this jetton" };
     }
-}
 
-const checkJettonMinterNextAdmin = async (values: { [key: string]: any }): Promise<ValidatedValue> => {
-    try {
-        const multisigInfo = currentMultisigInfo;
+    return { value: jettonMinterInfo };
+  } catch (e: any) {
+    console.error(e);
+    return { error: "Jetton-minter check error" };
+  }
+};
 
-        const jettonMinterInfo = await checkJettonMinter(values.jettonMinterAddress, IS_TESTNET, true);
+const checkJettonMinterNextAdmin = async (values: {
+  [key: string]: any;
+}): Promise<ValidatedValue> => {
+  try {
+    const multisigInfo = currentMultisigInfo;
 
-        if (!jettonMinterInfo.nextAdminAddress || !multisigInfo.address.address.equals(jettonMinterInfo.nextAdminAddress)) {
-            return {error: "Multisig is not next-admin of this jetton"};
-        }
+    const jettonMinterInfo = await checkJettonMinter(
+      values.jettonMinterAddress,
+      IS_TESTNET,
+      true
+    );
 
-        return {value: jettonMinterInfo};
-    } catch (e: any) {
-        console.error(e);
-        return {error: 'Jetton-minter check error'};
+    if (
+      !jettonMinterInfo.nextAdminAddress ||
+      !multisigInfo.address.address.equals(jettonMinterInfo.nextAdminAddress)
+    ) {
+      return { error: "Multisig is not next-admin of this jetton" };
     }
-}
 
-const checkExistingOrderId = async (orderId: bigint): Promise<ValidatedValue> => {
-    try {
-        const orderAddress = await currentMultisigInfo.multisigContract.getOrderAddress(currentMultisigInfo.provider, orderId);
-        const result = await sendToIndex('account', {address: orderAddress.toRawString()}, IS_TESTNET);
-        if (result.status === 'uninit') {
-            return {value: true};
-        } else {
-            return {error: `Order ${orderId} already exists`};
-        }
-    } catch (e) {
-        console.error(e);
-        return {error: 'Possibly connectivity error'};
+    return { value: jettonMinterInfo };
+  } catch (e: any) {
+    console.error(e);
+    return { error: "Jetton-minter check error" };
+  }
+};
+
+const checkExistingOrderId = async (
+  orderId: bigint
+): Promise<ValidatedValue> => {
+  try {
+    const orderAddress =
+      await currentMultisigInfo.multisigContract.getOrderAddress(
+        currentMultisigInfo.provider,
+        orderId
+      );
+    const result = await sendToIndex(
+      "account",
+      { address: orderAddress.toRawString() },
+      IS_TESTNET
+    );
+    if (result.status === "uninit") {
+      return { value: true };
+    } else {
+      return { error: `Order ${orderId} already exists` };
     }
-}
+  } catch (e) {
+    console.error(e);
+    return { error: "Possibly connectivity error" };
+  }
+};
 
 const orderTypes: OrderType[] = [
-    {
-        name: 'Transfer TON',
-        fields: {
-            amount: {
-                name: 'TON Amount',
-                type: 'TON'
-            },
-            toAddress: {
-                name: 'Destination Address',
-                type: 'Address'
-            }
-        },
-        makeMessage: async (values) => {
-            return {
-                toAddress: values.toAddress,
-                tonAmount: values.amount,
-                body: beginCell().endCell()
-            };
-        }
+  {
+    name: "Transfer TON",
+    fields: {
+      amount: {
+        name: "TON Amount",
+        type: "TON",
+      },
+      toAddress: {
+        name: "Destination Address",
+        type: "Address",
+      },
     },
-
-    {
-        name: 'Transfer Jetton',
-        fields: {
-            jettonMinterAddress: {
-                name: 'Jetton Minter Address',
-                type: 'Address'
-            },
-            amount: {
-                name: 'Jetton Amount (in units)',
-                type: 'Jetton'
-            },
-            toAddress: {
-                name: 'To Address',
-                type: 'Address'
-            }
-        },
-        makeMessage: async (values): Promise<MakeMessageResult> => {
-            const jettonMinterAddress: Address = values.jettonMinterAddress.address;
-            const multisigAddress = currentMultisigInfo.address.address;
-            const jettonMinter = JettonMinter.createFromAddress(jettonMinterAddress);
-            const provider = new MyNetworkProvider(jettonMinterAddress, IS_TESTNET);
-
-            const jettonWalletAddress = await jettonMinter.getWalletAddress(provider, multisigAddress);
-
-            return {
-                toAddress: {address: jettonWalletAddress, isBounceable: true, isTestOnly: IS_TESTNET},
-                tonAmount: DEFAULT_AMOUNT,
-                body: JettonWallet.transferMessage(values.amount, values.toAddress.address, multisigAddress, null, 0n, null)
-            }
-        }
+    makeMessage: async (values) => {
+      return {
+        toAddress: values.toAddress,
+        tonAmount: values.amount,
+        body: beginCell().endCell(),
+      };
     },
+  },
 
-    {
-        name: 'Mint Jetton',
-        fields: {
-            jettonMinterAddress: {
-                name: 'Jetton Minter Address',
-                type: 'Address'
-            },
-            amount: {
-                name: 'Jetton Amount (in units)',
-                type: 'Jetton'
-            },
-            toAddress: {
-                name: 'To Address',
-                type: 'Address'
-            }
-        },
-        check: checkJettonMinterAdmin,
-        makeMessage: async (values): Promise<MakeMessageResult> => {
-            return {
-                toAddress: values.jettonMinterAddress,
-                tonAmount: DEFAULT_AMOUNT,
-                body: JettonMinter.mintMessage(values.toAddress.address, values.amount, values.jettonMinterAddress.address, currentMultisigInfo.address.address, null, 0n, DEFAULT_INTERNAL_AMOUNT)
-            };
-        }
+  {
+    name: "Transfer Jetton",
+    fields: {
+      jettonMinterAddress: {
+        name: "Jetton Minter",
+        type: "Address",
+      },
+      amount: {
+        name: "Jetton Amount (in units)",
+        type: "Jetton",
+      },
+      toAddress: {
+        name: "To Address",
+        type: "Address",
+      },
+      comment: {
+        name: "Comment",
+        type: "String",
+      },
     },
+    makeMessage: async (values): Promise<MakeMessageResult> => {
+      const jettonMinterAddress: Address = values.jettonMinterAddress.address;
+      const multisigAddress = currentMultisigInfo.address.address;
+      const jettonMinter = JettonMinter.createFromAddress(jettonMinterAddress);
+      const provider = new MyNetworkProvider(jettonMinterAddress, IS_TESTNET);
 
-    {
-        name: 'Change Jetton Admin',
-        fields: {
-            jettonMinterAddress: {
-                name: 'Jetton Minter Address',
-                type: 'Address'
-            },
-            newAdminAddress: {
-                name: 'New Admin Address',
-                type: 'Address'
-            },
+      const jettonWalletAddress = await jettonMinter.getWalletAddress(
+        provider,
+        multisigAddress
+      );
+      console.log("jettonWalletAddress", jettonWalletAddress.toString());
+      const comment = values.comment;
+      console.log("comment", comment);
+      const forward_payload = beginCell()
+        .storeBuffer(Buffer.alloc(4, 0))
+        .storeBuffer(Buffer.from(comment, "utf-8"))
+        .endCell();
+      console.log("payload", forward_payload); //b5ee9c7201010201003e0001627362d09c546de4efef7b7e3a30186a08011637f4ec0f944672098eb6b8d98906100778938c04ed4f249c3177b1365c0f730100100000000074657374
+      //b5ee9c7201010201003800015e7362d09c0000000000000000164801636a741bf9e36086b30c7c49cb8b811b38ec2428d4f4d48a7c6f18e81ad4646f01000854657374
+      return {
+        toAddress: {
+          address: jettonWalletAddress,
+          isBounceable: true,
+          isTestOnly: IS_TESTNET,
         },
-        check: checkJettonMinterAdmin,
-        makeMessage: async (values): Promise<MakeMessageResult> => {
-            return {
-                toAddress: values.jettonMinterAddress,
-                tonAmount: DEFAULT_AMOUNT,
-                body: JettonMinter.changeAdminMessage(values.newAdminAddress.address)
-            };
-        }
+        tonAmount: DEFAULT_AMOUNT,
+        body: JettonWallet.transferMessage(
+          values.amount,
+          values.toAddress.address,
+          multisigAddress,
+          null,
+          1n,
+          forward_payload
+        ),
+      };
     },
+  },
 
-    {
-        name: 'Claim Jetton Admin',
-        fields: {
-            jettonMinterAddress: {
-                name: 'Jetton Minter Address',
-                type: 'Address'
-            },
-        },
-        check: checkJettonMinterNextAdmin,
-        makeMessage: async (values): Promise<MakeMessageResult> => {
-            return {
-                toAddress: values.jettonMinterAddress,
-                tonAmount: DEFAULT_AMOUNT,
-                body: JettonMinter.claimAdminMessage()
-            }
-        }
+  {
+    name: "Mint Jetton",
+    fields: {
+      jettonMinterAddress: {
+        name: "Jetton Minter Address",
+        type: "Address",
+      },
+      amount: {
+        name: "Jetton Amount (in units)",
+        type: "Jetton",
+      },
+      toAddress: {
+        name: "To Address",
+        type: "Address",
+      },
     },
+    check: checkJettonMinterAdmin,
+    makeMessage: async (values): Promise<MakeMessageResult> => {
+      return {
+        toAddress: values.jettonMinterAddress,
+        tonAmount: DEFAULT_AMOUNT,
+        body: JettonMinter.mintMessage(
+          values.toAddress.address,
+          values.amount,
+          values.jettonMinterAddress.address,
+          currentMultisigInfo.address.address,
+          null,
+          0n,
+          DEFAULT_INTERNAL_AMOUNT
+        ),
+      };
+    },
+  },
 
-    {
-        name: 'Top-up Jetton Minter',
-        fields: {
-            jettonMinterAddress: {
-                name: 'Jetton Minter Address',
-                type: 'Address'
-            },
-            amount: {
-                name: 'TON Amount',
-                type: 'TON'
-            },
-        },
-        makeMessage: async (values): Promise<MakeMessageResult> => {
-            return {
-                toAddress: values.jettonMinterAddress,
-                tonAmount: values.amount,
-                body: JettonMinter.topUpMessage()
-            }
-        }
+  {
+    name: "Change Jetton Admin",
+    fields: {
+      jettonMinterAddress: {
+        name: "Jetton Minter Address",
+        type: "Address",
+      },
+      newAdminAddress: {
+        name: "New Admin Address",
+        type: "Address",
+      },
     },
+    check: checkJettonMinterAdmin,
+    makeMessage: async (values): Promise<MakeMessageResult> => {
+      return {
+        toAddress: values.jettonMinterAddress,
+        tonAmount: DEFAULT_AMOUNT,
+        body: JettonMinter.changeAdminMessage(values.newAdminAddress.address),
+      };
+    },
+  },
 
-    {
-        name: 'Change Jetton Metadata URL',
-        fields: {
-            jettonMinterAddress: {
-                name: 'Jetton Minter Address',
-                type: 'Address'
-            },
-            newMetadataUrl: {
-                name: 'New Metadata URL',
-                type: 'URL'
-            }
-        },
-        check: checkJettonMinterAdmin,
-        makeMessage: async (values): Promise<MakeMessageResult> => {
-            return {
-                toAddress: values.jettonMinterAddress,
-                tonAmount: DEFAULT_AMOUNT,
-                body: JettonMinter.changeContentMessage({
-                    uri: values.newMetadataUrl
-                })
-            };
-        }
+  {
+    name: "Claim Jetton Admin",
+    fields: {
+      jettonMinterAddress: {
+        name: "Jetton Minter Address",
+        type: "Address",
+      },
     },
+    check: checkJettonMinterNextAdmin,
+    makeMessage: async (values): Promise<MakeMessageResult> => {
+      return {
+        toAddress: values.jettonMinterAddress,
+        tonAmount: DEFAULT_AMOUNT,
+        body: JettonMinter.claimAdminMessage(),
+      };
+    },
+  },
 
-    {
-        name: 'Force Burn Jetton',
-        fields: {
-            jettonMinterAddress: {
-                name: 'Jetton Minter Address',
-                type: 'Address'
-            },
-            amount: {
-                name: 'Jetton Amount (in units)',
-                type: 'Jetton'
-            },
-            fromAddress: {
-                name: 'User Address',
-                type: 'Address'
-            }
-        },
-        check: checkJettonMinterAdmin,
-        makeMessage: async (values): Promise<MakeMessageResult> => {
-            return {
-                toAddress: values.jettonMinterAddress,
-                tonAmount: DEFAULT_AMOUNT,
-                body: JettonMinter.forceBurnMessage(values.amount, values.fromAddress.address, currentMultisigInfo.address.address, DEFAULT_INTERNAL_AMOUNT)
-            };
-        }
+  {
+    name: "Top-up Jetton Minter",
+    fields: {
+      jettonMinterAddress: {
+        name: "Jetton Minter Address",
+        type: "Address",
+      },
+      amount: {
+        name: "TON Amount",
+        type: "TON",
+      },
     },
+    makeMessage: async (values): Promise<MakeMessageResult> => {
+      return {
+        toAddress: values.jettonMinterAddress,
+        tonAmount: values.amount,
+        body: JettonMinter.topUpMessage(),
+      };
+    },
+  },
 
-    {
-        name: 'Force Transfer Jetton',
-        fields: {
-            jettonMinterAddress: {
-                name: 'Jetton Minter Address',
-                type: 'Address'
-            },
-            amount: {
-                name: 'Jetton Amount (in units)',
-                type: 'Jetton'
-            },
-            fromAddress: {
-                name: 'From Address',
-                type: 'Address'
-            },
-            toAddress: {
-                name: 'To Address',
-                type: 'Address'
-            }
-        },
-        check: checkJettonMinterAdmin,
-        makeMessage: async (values): Promise<MakeMessageResult> => {
-            return {
-                toAddress: values.jettonMinterAddress,
-                tonAmount: DEFAULT_AMOUNT,
-                body: JettonMinter.forceTransferMessage(values.amount, values.toAddress.address, values.fromAddress.address, values.jettonMinterAddress.address, null, 0n, null, DEFAULT_INTERNAL_AMOUNT)
-            }
-        }
+  {
+    name: "Change Jetton Metadata URL",
+    fields: {
+      jettonMinterAddress: {
+        name: "Jetton Minter Address",
+        type: "Address",
+      },
+      newMetadataUrl: {
+        name: "New Metadata URL",
+        type: "URL",
+      },
     },
+    check: checkJettonMinterAdmin,
+    makeMessage: async (values): Promise<MakeMessageResult> => {
+      return {
+        toAddress: values.jettonMinterAddress,
+        tonAmount: DEFAULT_AMOUNT,
+        body: JettonMinter.changeContentMessage({
+          uri: values.newMetadataUrl,
+        }),
+      };
+    },
+  },
 
-    {
-        name: 'Set status for Jetton Wallet',
-        fields: {
-            jettonMinterAddress: {
-                name: 'Jetton Minter Address',
-                type: 'Address'
-            },
-            userAddress: {
-                name: 'User Address',
-                type: 'Address'
-            },
-            newStatus: {
-                name: `New Status (${LOCK_TYPES.join(', ')})`,
-                type: 'Status'
-            }
-        },
-        check: checkJettonMinterAdmin,
-        makeMessage: async (values): Promise<MakeMessageResult> => {
-            return {
-                toAddress: values.jettonMinterAddress,
-                tonAmount: DEFAULT_AMOUNT,
-                body: JettonMinter.lockWalletMessage(values.userAddress.address, lockTypeToInt(values.newStatus), DEFAULT_INTERNAL_AMOUNT)
-            }
-        }
+  {
+    name: "Force Burn Jetton",
+    fields: {
+      jettonMinterAddress: {
+        name: "Jetton Minter Address",
+        type: "Address",
+      },
+      amount: {
+        name: "Jetton Amount (in units)",
+        type: "Jetton",
+      },
+      fromAddress: {
+        name: "User Address",
+        type: "Address",
+      },
     },
-]
+    check: checkJettonMinterAdmin,
+    makeMessage: async (values): Promise<MakeMessageResult> => {
+      return {
+        toAddress: values.jettonMinterAddress,
+        tonAmount: DEFAULT_AMOUNT,
+        body: JettonMinter.forceBurnMessage(
+          values.amount,
+          values.fromAddress.address,
+          currentMultisigInfo.address.address,
+          DEFAULT_INTERNAL_AMOUNT
+        ),
+      };
+    },
+  },
+
+  {
+    name: "Force Transfer Jetton",
+    fields: {
+      jettonMinterAddress: {
+        name: "Jetton Minter Address",
+        type: "Address",
+      },
+      amount: {
+        name: "Jetton Amount (in units)",
+        type: "Jetton",
+      },
+      fromAddress: {
+        name: "From Address",
+        type: "Address",
+      },
+      toAddress: {
+        name: "To Address",
+        type: "Address",
+      },
+    },
+    check: checkJettonMinterAdmin,
+    makeMessage: async (values): Promise<MakeMessageResult> => {
+      return {
+        toAddress: values.jettonMinterAddress,
+        tonAmount: DEFAULT_AMOUNT,
+        body: JettonMinter.forceTransferMessage(
+          values.amount,
+          values.toAddress.address,
+          values.fromAddress.address,
+          values.jettonMinterAddress.address,
+          null,
+          0n,
+          null,
+          DEFAULT_INTERNAL_AMOUNT
+        ),
+      };
+    },
+  },
+
+  {
+    name: "Set status for Jetton Wallet",
+    fields: {
+      jettonMinterAddress: {
+        name: "Jetton Minter Address",
+        type: "Address",
+      },
+      userAddress: {
+        name: "User Address",
+        type: "Address",
+      },
+      newStatus: {
+        name: `New Status (${LOCK_TYPES.join(", ")})`,
+        type: "Status",
+      },
+    },
+    check: checkJettonMinterAdmin,
+    makeMessage: async (values): Promise<MakeMessageResult> => {
+      return {
+        toAddress: values.jettonMinterAddress,
+        tonAmount: DEFAULT_AMOUNT,
+        body: JettonMinter.lockWalletMessage(
+          values.userAddress.address,
+          lockTypeToInt(values.newStatus),
+          DEFAULT_INTERNAL_AMOUNT
+        ),
+      };
+    },
+  },
+];
 
 const getOrderTypesHTML = (): string => {
-    let html = '';
-    for (let i = 0; i < orderTypes.length; i++) {
-        const orderType = orderTypes[i];
-        html += `<option value="${i}">${orderType.name}</option>`;
-    }
-    return html;
-}
+  let html = "";
+  for (let i = 0; i < orderTypes.length; i++) {
+    const orderType = orderTypes[i];
+    html += `<option value="${i}">${orderType.name}</option>`;
+  }
+  return html;
+};
 
-const newOrderTypeSelect: HTMLSelectElement = $('#newOrder_typeInput') as HTMLSelectElement;
+const newOrderTypeSelect: HTMLSelectElement = $(
+  "#newOrder_typeInput"
+) as HTMLSelectElement;
 newOrderTypeSelect.innerHTML = getOrderTypesHTML();
 
 const renderNewOrderFields = (orderTypeIndex: number): void => {
-    const orderType = orderTypes[orderTypeIndex];
+  const orderType = orderTypes[orderTypeIndex];
 
-    let html = '';
+  let html = "";
 
-    for (let fieldId in orderType.fields) {
-        if (orderType.fields.hasOwnProperty(fieldId)) {
-            const field = orderType.fields[fieldId];
-            html += `<div class="label">${field.name}:</div>`
+  for (let fieldId in orderType.fields) {
+    if (orderType.fields.hasOwnProperty(fieldId)) {
+      const field = orderType.fields[fieldId];
+      html += `<div class="label">${field.name}:</div>`;
 
-            if (field.type === 'Status') {
-                html += `<select id="newOrder_${orderTypeIndex}_${fieldId}">`
-                for (let i = 0; i < LOCK_TYPES.length; i++) {
-                    const lockType: LockType = LOCK_TYPES[i] as LockType;
-                    html += `<option value="${lockType}">${lockTypeToDescription(lockType)}</option>`;
-                }
-                html += `</select>`
-            } else {
-                html += `<input id="newOrder_${orderTypeIndex}_${fieldId}">`
-            }
+      if (field.type === "Status") {
+        html += `<select id="newOrder_${orderTypeIndex}_${fieldId}">`;
+        for (let i = 0; i < LOCK_TYPES.length; i++) {
+          const lockType: LockType = LOCK_TYPES[i] as LockType;
+          html += `<option value="${lockType}">${lockTypeToDescription(
+            lockType
+          )}</option>`;
         }
+        html += `</select>`;
+      } else {
+        html += `<input id="newOrder_${orderTypeIndex}_${fieldId}">`;
+      }
     }
+  }
 
-    $('#newOrder_fieldsContainer').innerHTML = html;
-}
+  $("#newOrder_fieldsContainer").innerHTML = html;
+};
 
-newOrderTypeSelect.addEventListener('change', (e) => {
-    renderNewOrderFields(newOrderTypeSelect.selectedIndex)
+newOrderTypeSelect.addEventListener("change", (e) => {
+  renderNewOrderFields(newOrderTypeSelect.selectedIndex);
 });
 
 renderNewOrderFields(0);
 
-let newOrderMode: 'fill' | 'confirm' = 'fill';
-let transactionToSent: {
-    orderId: bigint,
-    multisigAddress: Address,
-    message: { address: string, amount: string, stateInit?: string, payload?: string }
-} | undefined = undefined;
+let newOrderMode: "fill" | "confirm" = "fill";
+let transactionToSent:
+  | {
+      orderId: bigint;
+      multisigAddress: Address;
+      message: {
+        address: string;
+        amount: string;
+        stateInit?: string;
+        payload?: string;
+      };
+    }
+  | undefined = undefined;
 
 const getNewOrderId = (): string => {
-    if (!currentMultisigInfo) return '';
+  if (!currentMultisigInfo) return "";
 
-    let highestOrderId = -1n;
-    currentMultisigInfo.lastOrders.forEach(lastOrder => {
-        if (lastOrder.order.id > highestOrderId) {
-            highestOrderId = lastOrder.order.id;
-        }
-    });
-    return highestOrderId === -1n ? '' : (highestOrderId + 1n).toString();
-}
+  let highestOrderId = -1n;
+  currentMultisigInfo.lastOrders.forEach((lastOrder) => {
+    if (lastOrder.order.id > highestOrderId) {
+      highestOrderId = lastOrder.order.id;
+    }
+  });
+  return highestOrderId === -1n ? "" : (highestOrderId + 1n).toString();
+};
 
 const newOrderClear = () => {
-    setNewOrderMode('fill');
-    transactionToSent = undefined;
+  setNewOrderMode("fill");
+  transactionToSent = undefined;
 
-    newOrderTypeSelect.selectedIndex = 0;
-    renderNewOrderFields(0);
+  newOrderTypeSelect.selectedIndex = 0;
+  renderNewOrderFields(0);
 
-    ($('#newOrder_orderId') as HTMLInputElement).value = getNewOrderId();
-}
+  ($("#newOrder_orderId") as HTMLInputElement).value = getNewOrderId();
+};
 
 const updateNewOrderButtons = (isDisabled: boolean) => {
-    ($('#newOrder_createButton') as HTMLButtonElement).disabled = isDisabled;
-    ($('#newOrder_backButton') as HTMLButtonElement).disabled = isDisabled;
-}
+  ($("#newOrder_createButton") as HTMLButtonElement).disabled = isDisabled;
+  ($("#newOrder_backButton") as HTMLButtonElement).disabled = isDisabled;
+};
 
 const setNewOrderDisabled = (isDisabled: boolean) => {
-    const orderTypeIndex = newOrderTypeSelect.selectedIndex;
-    const orderType = orderTypes[orderTypeIndex];
+  const orderTypeIndex = newOrderTypeSelect.selectedIndex;
+  const orderType = orderTypes[orderTypeIndex];
 
-    newOrderTypeSelect.disabled = isDisabled;
+  newOrderTypeSelect.disabled = isDisabled;
 
-    ($('#newOrder_orderId') as HTMLInputElement).disabled = isDisabled
+  ($("#newOrder_orderId") as HTMLInputElement).disabled = isDisabled;
 
-    for (let fieldId in orderType.fields) {
-        if (orderType.fields.hasOwnProperty(fieldId)) {
-            const input: HTMLInputElement = $(`#newOrder_${orderTypeIndex}_${fieldId}`) as HTMLInputElement;
-            input.disabled = isDisabled;
-        }
+  for (let fieldId in orderType.fields) {
+    if (orderType.fields.hasOwnProperty(fieldId)) {
+      const input: HTMLInputElement = $(
+        `#newOrder_${orderTypeIndex}_${fieldId}`
+      ) as HTMLInputElement;
+      input.disabled = isDisabled;
     }
+  }
 
-    updateNewOrderButtons(isDisabled);
-}
-const setNewOrderMode = (mode: 'fill' | 'confirm') => {
-    if (mode == 'fill') {
-        setNewOrderDisabled(false);
-        $('#newOrder_createButton').innerHTML = 'Create';
-        $('#newOrder_backButton').innerHTML = 'Back';
-    } else {
-        setNewOrderDisabled(true);
-        $('#newOrder_createButton').innerHTML = 'Send Transaction';
-        $('#newOrder_backButton').innerHTML = 'Cancel';
-    }
-    newOrderMode = mode;
-}
-
-$('#newOrder_createButton').addEventListener('click', async () => {
-    if (!myAddress) {
-        alert('Please connect wallet');
-        return;
-    }
-
-    // Confirm & Send Transaction
-
-    if (newOrderMode === 'confirm') {
-        if (!transactionToSent) throw new Error('');
-
-        try {
-            const result = await tonConnectUI.sendTransaction({
-                validUntil: Math.floor(Date.now() / 1000) + 60, // 1 minute
-                messages: [
-                    transactionToSent.message
-                ]
-            });
-            if (currentMultisigAddress === formatContractAddress(transactionToSent.multisigAddress)) {
-                setOrderId(transactionToSent.orderId);
-            }
-        } catch (e) {
-            console.error(e);
-        }
-        return;
-    }
-
-    const orderId = getBigIntFromInput($('#newOrder_orderId') as HTMLInputElement);
-    if (orderId === null || orderId === undefined || orderId < 0) {
-        alert('Invalid Order ID');
-        return;
-    }
-
-    const orderTypeIndex = newOrderTypeSelect.selectedIndex;
-    const orderType = orderTypes[orderTypeIndex];
-
-    const values: { [key: string]: any } = {};
-
-    for (let fieldId in orderType.fields) {
-        if (orderType.fields.hasOwnProperty(fieldId)) {
-            const field = orderType.fields[fieldId];
-            const input: HTMLInputElement = $(`#newOrder_${orderTypeIndex}_${fieldId}`) as HTMLInputElement;
-            const value = input.value;
-            const validated = validateValue(field.name, value, field.type);
-            if (validated.error) {
-                alert(validated.error)
-                return;
-            }
-            values[fieldId] = validated.value;
-        }
-    }
-
+  updateNewOrderButtons(isDisabled);
+};
+const setNewOrderMode = (mode: "fill" | "confirm") => {
+  if (mode == "fill") {
+    setNewOrderDisabled(false);
+    $("#newOrder_createButton").innerHTML = "Create";
+    $("#newOrder_backButton").innerHTML = "Back";
+  } else {
     setNewOrderDisabled(true);
+    $("#newOrder_createButton").innerHTML = "Send Transaction";
+    $("#newOrder_backButton").innerHTML = "Cancel";
+  }
+  newOrderMode = mode;
+};
 
-    const orderIdChecked = await checkExistingOrderId(orderId);
-    if (orderIdChecked.error) {
-        alert(orderIdChecked.error)
-        setNewOrderMode('fill')
+$("#newOrder_createButton").addEventListener("click", async () => {
+  if (!myAddress) {
+    alert("Please connect wallet");
+    return;
+  }
+
+  // Confirm & Send Transaction
+
+  if (newOrderMode === "confirm") {
+    if (!transactionToSent) throw new Error("");
+
+    try {
+      const result = await tonConnectUI.sendTransaction({
+        validUntil: Math.floor(Date.now() / 1000) + 60, // 1 minute
+        messages: [transactionToSent.message],
+      });
+      if (
+        currentMultisigAddress ===
+        formatContractAddress(transactionToSent.multisigAddress)
+      ) {
+        setOrderId(transactionToSent.orderId);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return;
+  }
+
+  const orderId = getBigIntFromInput(
+    $("#newOrder_orderId") as HTMLInputElement
+  );
+  const expiry = getBigIntFromInput($("#newOrder_expiry") as HTMLInputElement);
+  if (orderId === null || orderId === undefined || orderId < 0) {
+    alert("Invalid Order ID");
+    return;
+  }
+
+  const orderTypeIndex = newOrderTypeSelect.selectedIndex;
+  const orderType = orderTypes[orderTypeIndex];
+
+  const values: { [key: string]: any } = {};
+
+  for (let fieldId in orderType.fields) {
+    if (orderType.fields.hasOwnProperty(fieldId)) {
+      const field = orderType.fields[fieldId];
+      const input: HTMLInputElement = $(
+        `#newOrder_${orderTypeIndex}_${fieldId}`
+      ) as HTMLInputElement;
+      const value = input.value;
+      const validated = validateValue(field.name, value, field.type);
+      if (validated.error) {
+        alert(validated.error);
         return;
+      }
+      values[fieldId] = validated.value;
     }
+  }
 
-    if (orderType.check) {
-        const checked = await orderType.check(values);
-        if (checked.error) {
-            alert(checked.error)
-            setNewOrderMode('fill')
-            return;
-        }
+  setNewOrderDisabled(true);
+
+  // const orderIdChecked = await checkExistingOrderId(orderId);
+  // if (orderIdChecked.error) {
+  //     alert(orderIdChecked.error)
+  //     setNewOrderMode('fill')
+  //     return;
+  // }
+
+  if (orderType.check) {
+    const checked = await orderType.check(values);
+    if (checked.error) {
+      alert(checked.error);
+      setNewOrderMode("fill");
+      return;
     }
+  }
 
-    const messageParams = await orderType.makeMessage(values);
+  const messageParams = await orderType.makeMessage(values);
 
-    const myProposerIndex = currentMultisigInfo.proposers.findIndex(address => address.address.equals(myAddress));
-    const mySignerIndex = currentMultisigInfo.signers.findIndex(address => address.address.equals(myAddress));
+  const myProposerIndex = currentMultisigInfo.proposers.findIndex((address) =>
+    address.address.equals(myAddress)
+  );
+  const mySignerIndex = currentMultisigInfo.signers.findIndex((address) =>
+    address.address.equals(myAddress)
+  );
 
-    if (myProposerIndex === -1 && mySignerIndex === -1) {
-        alert('Error: you are not proposer and not signer');
-        setNewOrderMode('fill')
-        return;
-    }
+  if (myProposerIndex === -1 && mySignerIndex === -1) {
+    alert("Error: you are not proposer and not signer");
+    setNewOrderMode("fill");
+    return;
+  }
 
-    const isSigner = mySignerIndex > -1;
+  const isSigner = mySignerIndex > -1;
 
-    const toAddress = messageParams.toAddress;
-    const tonAmount = messageParams.tonAmount;
-    const payloadCell = messageParams.body;
-    const expireAt = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30; // 1 month
+  const toAddress = messageParams.toAddress;
+  const tonAmount = messageParams.tonAmount;
+  const payloadCell = messageParams.body;
+  const expireAt = expiry
+    ? Number(expiry.toString())
+    : Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7;
+  console.log(expireAt);
+  const actions = Multisig.packOrder([
+    {
+      type: "transfer",
+      sendMode: SendMode.PAY_GAS_SEPARATELY,
+      message: {
+        info: {
+          type: "internal",
+          ihrDisabled: false,
+          bounce: true,
+          bounced: false,
+          dest: toAddress.address,
+          value: {
+            coins: tonAmount,
+          },
+          ihrFee: 0n,
+          forwardFee: 0n,
+          createdLt: 0n,
+          createdAt: 0,
+        },
+        body: payloadCell,
+      },
+    },
+  ]);
 
-    const actions = Multisig.packOrder([
-        {
-            type: 'transfer',
-            sendMode: SendMode.PAY_GAS_SEPARATELY,
-            message: {
-                info: {
-                    type: 'internal',
-                    ihrDisabled: false,
-                    bounce: true,
-                    bounced: false,
-                    dest: toAddress.address,
-                    value: {
-                        coins: tonAmount
-                    },
-                    ihrFee: 0n,
-                    forwardFee: 0n,
-                    createdLt: 0n,
-                    createdAt: 0
-                },
-                body: payloadCell
-            }
-        }
-    ]);
+  const message = Multisig.newOrderMessage(
+    actions,
+    expireAt,
+    isSigner,
+    isSigner ? mySignerIndex : myProposerIndex,
+    orderId,
+    0n
+  );
+  const messageBase64 = message.toBoc().toString("base64");
 
-    const message = Multisig.newOrderMessage(actions, expireAt, isSigner, isSigner ? mySignerIndex : myProposerIndex, orderId, 0n)
-    const messageBase64 = message.toBoc().toString('base64');
+  console.log({
+    toAddress,
+    tonAmount,
+    payloadCell,
+    message,
+    orderId,
+  });
 
-    console.log({
-        toAddress,
-        tonAmount,
-        payloadCell,
-        message,
-        orderId
-    })
+  const multisigAddressString = currentMultisigAddress;
+  const amount = AMOUNT_TO_SEND.toString();
 
-    const multisigAddressString = currentMultisigAddress;
-    const amount = AMOUNT_TO_SEND.toString();
+  transactionToSent = {
+    multisigAddress: Address.parseFriendly(multisigAddressString).address,
+    orderId: orderId,
+    message: {
+      address: multisigAddressString,
+      amount: amount,
+      payload: messageBase64, // raw one-cell BoC encoded in Base64
+    },
+  };
 
-    transactionToSent = {
-        multisigAddress: Address.parseFriendly(multisigAddressString).address,
-        orderId: orderId,
-        message: {
-            address: multisigAddressString,
-            amount: amount,
-            payload: messageBase64,  // raw one-cell BoC encoded in Base64
-        }
-    };
-
-    setNewOrderMode('confirm')
-    updateNewOrderButtons(false);
+  setNewOrderMode("confirm");
+  updateNewOrderButtons(false);
 });
 
-$('#newOrder_backButton').addEventListener('click', () => {
-    if (newOrderMode == 'fill') {
-        showScreen('multisigScreen');
-    } else {
-        setNewOrderMode('fill');
-    }
+$("#newOrder_backButton").addEventListener("click", () => {
+  if (newOrderMode == "fill") {
+    showScreen("multisigScreen");
+  } else {
+    setNewOrderMode("fill");
+  }
 });
 
 // NEW MULTISIG / EDIT MULTISIG
 
 const getIntFromInput = (input: HTMLInputElement): null | number => {
-    if (input.value === '') {
-        return null;
+  if (input.value === "") {
+    return null;
+  }
+  try {
+    const i = parseInt(input.value);
+    if (isNaN(i)) {
+      return null;
     }
-    try {
-        const i = parseInt(input.value);
-        if (isNaN(i)) {
-            return null;
-        }
-        return i;
-    } catch (e) {
-        return null;
-    }
-}
+    return i;
+  } catch (e) {
+    return null;
+  }
+};
 
 const getBigIntFromInput = (input: HTMLInputElement): null | bigint => {
-    if (input.value === '') {
-        return null;
-    }
-    try {
-        const i = BigInt(input.value);
-        return i;
-    } catch (e) {
-        return null;
-    }
-}
+  if (input.value === "") {
+    return null;
+  }
+  try {
+    const i = BigInt(input.value);
+    return i;
+  } catch (e) {
+    return null;
+  }
+};
 
-const newMultisigTreshoildInput = $('#newMultisig_threshold') as HTMLInputElement;
-const newMultisigOrderIdInput = $('#newMultisig_orderId') as HTMLInputElement;
+const newMultisigTreshoildInput = $(
+  "#newMultisig_threshold"
+) as HTMLInputElement;
+const newMultisigOrderIdInput = $("#newMultisig_orderId") as HTMLInputElement;
+const newMultisigSupportedTokenInput = $(
+  "#newMultisig_supported_token"
+) as HTMLInputElement;
 
-let newMultisigMode: 'create' | 'update' = 'create';
-let newMultisigStatus: 'fill' | 'confirm' = 'fill';
+let newMultisigMode: "create" | "update" = "create";
+let newMultisigStatus: "fill" | "confirm" = "fill";
 
 interface NewMultisigInfo {
-    signersCount: number;
-    proposersCount: number;
+  signersCount: number;
+  proposersCount: number;
 }
 
 let newMultisigInfo: NewMultisigInfo | undefined = undefined;
-let newMultisigTransactionToSend: {
-    orderId?: bigint,
-    multisigAddress: Address,
-    message: { address: string, amount: string, stateInit?: string, payload?: string }
-} | undefined = undefined;
+let newMultisigTransactionToSend:
+  | {
+      orderId?: bigint;
+      multisigAddress: Address;
+      message: {
+        address: string;
+        amount: string;
+        stateInit?: string;
+        payload?: string;
+      };
+    }
+  | undefined = undefined;
 
-const showNewMultisigScreen = (mode: 'create' | 'update'): void => {
-    newMultisigMode = mode;
-    showScreen('newMultisigScreen'); // show screen invokes newMultisigClear
-}
+const showNewMultisigScreen = (mode: "create" | "update"): void => {
+  newMultisigMode = mode;
+  showScreen("newMultisigScreen"); // show screen invokes newMultisigClear
+};
 
 const newMultisigClear = (): void => {
-    newMultisigStatus = 'fill';
-    newMultisigInfo = {
-        signersCount: 0,
-        proposersCount: 0
-    };
-    newMultisigTransactionToSend = undefined;
+  newMultisigStatus = "fill";
+  newMultisigInfo = {
+    signersCount: 0,
+    proposersCount: 0,
+  };
+  newMultisigTransactionToSend = undefined;
 
-    $('#newMultisig_signersContainer').innerHTML = '';
-    $('#newMultisig_proposersContainer').innerHTML = '';
-    newMultisigOrderIdInput.value = getNewOrderId();
-    newMultisigTreshoildInput.value = '';
+  $("#newMultisig_signersContainer").innerHTML = "";
+  $("#newMultisig_proposersContainer").innerHTML = "";
+  newMultisigOrderIdInput.value = getNewOrderId();
+  newMultisigTreshoildInput.value = "";
 
-    toggle($('#newMultisig_orderIdLabel'), newMultisigMode === 'update');
-    toggle($('#newMultisig_orderId'), newMultisigMode === 'update');
+  toggle($("#newMultisig_orderIdLabel"), newMultisigMode === "update");
+  toggle($("#newMultisig_orderId"), newMultisigMode === "update");
 
-    if (newMultisigMode === 'create') {
-        addSignerInput(0);
-        newMultisigInfo.signersCount = 1;
-    } else {
-        newMultisigInfo.signersCount = currentMultisigInfo.signers.length;
-        for (let i = 0; i < newMultisigInfo.signersCount; i++) {
-            addSignerInput(i, addressToString(currentMultisigInfo.signers[i]));
-        }
-        newMultisigInfo.proposersCount = currentMultisigInfo.proposers.length;
-        for (let i = 0; i < newMultisigInfo.proposersCount; i++) {
-            addProposerInput(i, addressToString(currentMultisigInfo.proposers[i]));
-        }
-        newMultisigTreshoildInput.value = currentMultisigInfo.threshold.toString();
+  if (newMultisigMode === "create") {
+    addSignerInput(0);
+    newMultisigInfo.signersCount = 1;
+  } else {
+    newMultisigInfo.signersCount = currentMultisigInfo.signers.length;
+    for (let i = 0; i < newMultisigInfo.signersCount; i++) {
+      addSignerInput(i, addressToString(currentMultisigInfo.signers[i]));
     }
+    newMultisigInfo.proposersCount = currentMultisigInfo.proposers.length;
+    for (let i = 0; i < newMultisigInfo.proposersCount; i++) {
+      addProposerInput(i, addressToString(currentMultisigInfo.proposers[i]));
+    }
+    newMultisigTreshoildInput.value = currentMultisigInfo.threshold.toString();
+  }
 
-    updateNewMultisigDeleteButtons();
-    updateNewMultisigStatus();
-}
+  updateNewMultisigDeleteButtons();
+  updateNewMultisigStatus();
+};
 
 const updateNewMultisigDeleteButtons = () => {
-    const deleteButton = $(`#newMultisig_deleteSigner0`);
-    toggle(deleteButton, newMultisigInfo.signersCount > 1);
-}
+  const deleteButton = $(`#newMultisig_deleteSigner0`);
+  toggle(deleteButton, newMultisigInfo.signersCount > 1);
+};
 
 const addSignerInput = (i: number, value?: string): void => {
-    const element = document.createElement('div');
-    element.classList.add('address-input');
-    element.innerHTML = `<div class="address-input-num">#${i + 1}.</div> <input id="newMultisig_signer${i}"><button id="newMultisig_deleteSigner${i}">—</button>`;
-    $('#newMultisig_signersContainer').appendChild(element);
-    ($(`#newMultisig_signer${i}`) as HTMLInputElement).value = value === undefined ? '' : value;
-    element.querySelector(`#newMultisig_deleteSigner${i}`).addEventListener('click', onSignerDeleteClick);
-}
+  const element = document.createElement("div");
+  element.classList.add("address-input");
+  element.innerHTML = `<div class="address-input-num">#${
+    i + 1
+  }.</div> <input id="newMultisig_signer${i}"><button id="newMultisig_deleteSigner${i}">—</button>`;
+  $("#newMultisig_signersContainer").appendChild(element);
+  ($(`#newMultisig_signer${i}`) as HTMLInputElement).value =
+    value === undefined ? "" : value;
+  element
+    .querySelector(`#newMultisig_deleteSigner${i}`)
+    .addEventListener("click", onSignerDeleteClick);
+};
 const addProposerInput = (i: number, value?: string): void => {
-    const element = document.createElement('div');
-    element.classList.add('address-input');
-    element.innerHTML = `<div class="address-input-num">#${i + 1}.</div> <input id="newMultisig_proposer${i}"><button id="newMultisig_deleteProposer${i}">—</button>`;
-    $('#newMultisig_proposersContainer').appendChild(element);
-    ($(`#newMultisig_proposer${i}`) as HTMLInputElement).value = value === undefined ? '' : value;
-    element.querySelector(`#newMultisig_deleteProposer${i}`).addEventListener('click', onProposerDeleteClick);
-}
+  const element = document.createElement("div");
+  element.classList.add("address-input");
+  element.innerHTML = `<div class="address-input-num">#${
+    i + 1
+  }.</div> <input id="newMultisig_proposer${i}"><button id="newMultisig_deleteProposer${i}">—</button>`;
+  $("#newMultisig_proposersContainer").appendChild(element);
+  ($(`#newMultisig_proposer${i}`) as HTMLInputElement).value =
+    value === undefined ? "" : value;
+  element
+    .querySelector(`#newMultisig_deleteProposer${i}`)
+    .addEventListener("click", onProposerDeleteClick);
+};
 
 const onSignerDeleteClick = (event: MouseEvent): void => {
-    const button = event.target as HTMLButtonElement;
-    const index = Number(button.id.slice('newMultisig_deleteSigner'.length));
-    if (isNaN(index)) throw new Error();
+  const button = event.target as HTMLButtonElement;
+  const index = Number(button.id.slice("newMultisig_deleteSigner".length));
+  if (isNaN(index)) throw new Error();
 
-    const signers: string[] = [];
-    for (let i = 0; i < newMultisigInfo.signersCount; i++) {
-        const input = $(`#newMultisig_signer${i}`) as HTMLInputElement;
-        signers.push(input.value);
-    }
-    signers.splice(index, 1);
-    newMultisigInfo.signersCount--;
-    $('#newMultisig_signersContainer').innerHTML = '';
-    for (let i = 0; i < newMultisigInfo.signersCount; i++) {
-        addSignerInput(i, signers[i]);
-    }
+  const signers: string[] = [];
+  for (let i = 0; i < newMultisigInfo.signersCount; i++) {
+    const input = $(`#newMultisig_signer${i}`) as HTMLInputElement;
+    signers.push(input.value);
+  }
+  signers.splice(index, 1);
+  newMultisigInfo.signersCount--;
+  $("#newMultisig_signersContainer").innerHTML = "";
+  for (let i = 0; i < newMultisigInfo.signersCount; i++) {
+    addSignerInput(i, signers[i]);
+  }
 
-    updateNewMultisigDeleteButtons();
-}
+  updateNewMultisigDeleteButtons();
+};
 const onProposerDeleteClick = (event: MouseEvent): void => {
-    const button = event.target as HTMLButtonElement;
-    const index = Number(button.id.slice('newMultisig_deleteProposer'.length));
-    if (isNaN(index)) throw new Error();
+  const button = event.target as HTMLButtonElement;
+  const index = Number(button.id.slice("newMultisig_deleteProposer".length));
+  if (isNaN(index)) throw new Error();
 
-    const proposers: string[] = [];
-    for (let i = 0; i < newMultisigInfo.proposersCount; i++) {
-        const input = $(`#newMultisig_proposer${i}`) as HTMLInputElement;
-        proposers.push(input.value);
-    }
-    proposers.splice(index, 1);
-    newMultisigInfo.proposersCount--;
-    $('#newMultisig_proposersContainer').innerHTML = '';
-    for (let i = 0; i < newMultisigInfo.proposersCount; i++) {
-        addProposerInput(i, proposers[i]);
-    }
-}
+  const proposers: string[] = [];
+  for (let i = 0; i < newMultisigInfo.proposersCount; i++) {
+    const input = $(`#newMultisig_proposer${i}`) as HTMLInputElement;
+    proposers.push(input.value);
+  }
+  proposers.splice(index, 1);
+  newMultisigInfo.proposersCount--;
+  $("#newMultisig_proposersContainer").innerHTML = "";
+  for (let i = 0; i < newMultisigInfo.proposersCount; i++) {
+    addProposerInput(i, proposers[i]);
+  }
+};
 
-$('#newMultisig_addSignerButton').addEventListener('click', async () => {
-    addSignerInput(newMultisigInfo.signersCount);
-    newMultisigInfo.signersCount++;
-    updateNewMultisigDeleteButtons();
+$("#newMultisig_addSignerButton").addEventListener("click", async () => {
+  addSignerInput(newMultisigInfo.signersCount);
+  newMultisigInfo.signersCount++;
+  updateNewMultisigDeleteButtons();
 });
 
-$('#newMultisig_addProposerButton').addEventListener('click', async () => {
-    addProposerInput(newMultisigInfo.proposersCount);
-    newMultisigInfo.proposersCount++;
+$("#newMultisig_addProposerButton").addEventListener("click", async () => {
+  addProposerInput(newMultisigInfo.proposersCount);
+  newMultisigInfo.proposersCount++;
 });
 
 const updateNewMultisigStatus = (): void => {
-    const isDisabled = newMultisigStatus === 'confirm';
+  const isDisabled = newMultisigStatus === "confirm";
 
-    newMultisigOrderIdInput.disabled = isDisabled;
-    newMultisigTreshoildInput.disabled = isDisabled;
+  newMultisigOrderIdInput.disabled = isDisabled;
+  newMultisigTreshoildInput.disabled = isDisabled;
 
-    toggle($('#newMultisig_addSignerButton'), !isDisabled);
-    toggle($('#newMultisig_addProposerButton'), !isDisabled);
+  toggle($("#newMultisig_addSignerButton"), !isDisabled);
+  toggle($("#newMultisig_addProposerButton"), !isDisabled);
 
-    for (let i = 0; i < newMultisigInfo.signersCount; i++) {
-        const input = $(`#newMultisig_signer${i}`) as HTMLInputElement;
-        input.disabled = isDisabled;
-        const deleteButton = $(`#newMultisig_deleteSigner${i}`);
-        toggle(deleteButton, !isDisabled && (newMultisigInfo.signersCount > 1));
-    }
-    for (let i = 0; i < newMultisigInfo.proposersCount; i++) {
-        const input = $(`#newMultisig_proposer${i}`) as HTMLInputElement;
-        input.disabled = isDisabled;
-        const deleteButton = $(`#newMultisig_deleteProposer${i}`);
-        toggle(deleteButton, !isDisabled);
-    }
-    updateNewMultisigCreateButton(false);
-}
+  for (let i = 0; i < newMultisigInfo.signersCount; i++) {
+    const input = $(`#newMultisig_signer${i}`) as HTMLInputElement;
+    input.disabled = isDisabled;
+    const deleteButton = $(`#newMultisig_deleteSigner${i}`);
+    toggle(deleteButton, !isDisabled && newMultisigInfo.signersCount > 1);
+  }
+  for (let i = 0; i < newMultisigInfo.proposersCount; i++) {
+    const input = $(`#newMultisig_proposer${i}`) as HTMLInputElement;
+    input.disabled = isDisabled;
+    const deleteButton = $(`#newMultisig_deleteProposer${i}`);
+    toggle(deleteButton, !isDisabled);
+  }
+  updateNewMultisigCreateButton(false);
+};
 
-$('#newMultisig_backButton').addEventListener('click', () => {
-    if (newMultisigStatus === 'fill') {
-        if (newMultisigMode === 'create') {
-            showScreen('startScreen');
-        } else {
-            showScreen('multisigScreen');
-        }
+$("#newMultisig_backButton").addEventListener("click", () => {
+  if (newMultisigStatus === "fill") {
+    if (newMultisigMode === "create") {
+      showScreen("startScreen");
     } else {
-        newMultisigStatus = 'fill';
-        updateNewMultisigStatus();
+      showScreen("multisigScreen");
     }
+  } else {
+    newMultisigStatus = "fill";
+    updateNewMultisigStatus();
+  }
 });
 
 const updateNewMultisigCreateButtonTitle = () => {
-    $('#newMultisig_createButton').innerText = newMultisigStatus === 'confirm' ? 'Confirm' : (newMultisigMode === 'update' ? 'Update' : 'Create');
-}
+  $("#newMultisig_createButton").innerText =
+    newMultisigStatus === "confirm"
+      ? "Confirm"
+      : newMultisigMode === "update"
+      ? "Update"
+      : "Create";
+};
 
 const updateNewMultisigCreateButton = (isLoading: boolean): void => {
-    ($('#newMultisig_createButton') as HTMLButtonElement).disabled = isLoading;
-    if (isLoading) {
-        ($('#newMultisig_createButton') as HTMLButtonElement).innerText = 'Checking..';
-    } else {
-        updateNewMultisigCreateButtonTitle();
-    }
-    $('#newMultisigScreen').style.pointerEvents = isLoading ? 'none' : 'auto';
+  ($("#newMultisig_createButton") as HTMLButtonElement).disabled = isLoading;
+  if (isLoading) {
+    ($("#newMultisig_createButton") as HTMLButtonElement).innerText =
+      "Checking..";
+  } else {
+    updateNewMultisigCreateButtonTitle();
+  }
+  $("#newMultisigScreen").style.pointerEvents = isLoading ? "none" : "auto";
+};
 
-}
+$("#newMultisig_createButton").addEventListener("click", async () => {
+  if (!myAddress) {
+    alert("Please connect wallet");
+    return;
+  }
 
-$('#newMultisig_createButton').addEventListener('click', async () => {
-    if (!myAddress) {
-        alert('Please connect wallet');
-        return;
-    }
+  // Confirm & Send Transaction
 
-    // Confirm & Send Transaction
+  if (newMultisigStatus === "confirm") {
+    try {
+      const orderId = newMultisigTransactionToSend.orderId;
+      const multisigAddress = newMultisigTransactionToSend.multisigAddress;
 
-    if (newMultisigStatus === 'confirm') {
-        try {
-            const orderId = newMultisigTransactionToSend.orderId;
-            const multisigAddress = newMultisigTransactionToSend.multisigAddress;
-
-            const result = await tonConnectUI.sendTransaction({
-                validUntil: Math.floor(Date.now() / 1000) + 60, // 1 minute
-                messages: [
-                    newMultisigTransactionToSend.message
-                ]
-            });
-
-            if (newMultisigMode === 'update') {
-                if (currentMultisigAddress === formatContractAddress(multisigAddress)) {
-                    setOrderId(orderId);
-                }
-            } else {
-                setMultisigAddress(formatContractAddress(multisigAddress));
-            }
-        } catch (e) {
-            console.error(e);
+      const result = await tonConnectUI.sendTransaction({
+        validUntil: Math.floor(Date.now() / 1000) + 60, // 1 minute
+        messages: [newMultisigTransactionToSend.message],
+      });
+      console.log(result, "RESULT");
+      if (newMultisigMode === "update") {
+        if (currentMultisigAddress === formatContractAddress(multisigAddress)) {
+          setOrderId(orderId);
         }
-
-        return;
+      } else {
+        setMultisigAddress(formatContractAddress(multisigAddress));
+      }
+    } catch (e) {
+      console.error(e);
     }
 
-    // Get parameters
+    return;
+  }
 
-    const threshold = getIntFromInput(newMultisigTreshoildInput);
-    if (threshold === null || threshold === undefined || threshold <= 0 || threshold > newMultisigInfo.signersCount) {
-        alert('Threshold count: not valid number');
-        return;
+  // Get parameters
+
+  const threshold = getIntFromInput(newMultisigTreshoildInput);
+  const token_addressString = newMultisigSupportedTokenInput.value;
+
+  if (
+    threshold === null ||
+    threshold === undefined ||
+    threshold <= 0 ||
+    threshold > newMultisigInfo.signersCount
+  ) {
+    alert("Threshold count: not valid number");
+    return;
+  }
+
+  let orderId: bigint | undefined = undefined;
+  if (newMultisigMode === "update") {
+    orderId = getBigIntFromInput(newMultisigOrderIdInput);
+    if (orderId === null || orderId === undefined || orderId < 0) {
+      alert("Invalid order Id");
+      return;
     }
 
-    let orderId: bigint | undefined = undefined;
-    if (newMultisigMode === 'update') {
-        orderId = getBigIntFromInput(newMultisigOrderIdInput);
-        if (orderId === null || orderId === undefined || orderId < 0) {
-            alert('Invalid order Id');
-            return;
-        }
+    updateNewMultisigCreateButton(true);
+    // const orderIdChecked = await checkExistingOrderId(orderId);
+    updateNewMultisigCreateButton(false);
+    // if (orderIdChecked.error) {
+    //     alert(orderIdChecked.error)
+    //     return;
+    // }
+  }
 
-        updateNewMultisigCreateButton(true);
-        const orderIdChecked = await checkExistingOrderId(orderId);
-        updateNewMultisigCreateButton(false);
-        if (orderIdChecked.error) {
-            alert(orderIdChecked.error)
-            return;
-        }
+  const addressMap: { [key: string]: boolean } = {};
+
+  const signersAddresses: Address[] = [];
+  for (let i = 0; i < newMultisigInfo.signersCount; i++) {
+    const input = $(`#newMultisig_signer${i}`) as HTMLInputElement;
+    if (input.value === "") {
+      alert(`Signer ${i}: empty field`);
+      return;
     }
 
-    const addressMap: { [key: string]: boolean } = {};
+    const addressString = input.value;
+    const error = validateUserFriendlyAddress(addressString, IS_TESTNET);
+    if (error) {
+      alert(`Signer ${i}: ${error}`);
+      return;
+    }
+    const address = Address.parseFriendly(addressString).address;
+    if (addressMap[address.toRawString()]) {
+      alert("Duplicate " + addressString);
+      return;
+    }
+    addressMap[address.toRawString()] = true;
+    signersAddresses.push(address);
+  }
 
-    const signersAddresses: Address[] = [];
-    for (let i = 0; i < newMultisigInfo.signersCount; i++) {
-        const input = $(`#newMultisig_signer${i}`) as HTMLInputElement;
-        if (input.value === '') {
-            alert(`Signer ${i}: empty field`);
-            return;
-        }
-
-        const addressString = input.value;
-        const error = validateUserFriendlyAddress(addressString, IS_TESTNET);
-        if (error) {
-            alert(`Signer ${i}: ${error}`);
-            return;
-        }
-        const address = Address.parseFriendly(addressString).address;
-        if (addressMap[address.toRawString()]) {
-            alert('Duplicate ' + addressString);
-            return;
-        }
-        addressMap[address.toRawString()] = true;
-        signersAddresses.push(address);
+  const proposersAddresses: Address[] = [];
+  for (let i = 0; i < newMultisigInfo.proposersCount; i++) {
+    const input = $(`#newMultisig_proposer${i}`) as HTMLInputElement;
+    if (input.value === "") {
+      alert(`Proposer ${i}: empty field`);
+      return;
     }
 
-    const proposersAddresses: Address[] = [];
-    for (let i = 0; i < newMultisigInfo.proposersCount; i++) {
-        const input = $(`#newMultisig_proposer${i}`) as HTMLInputElement;
-        if (input.value === '') {
-            alert(`Proposer ${i}: empty field`);
-            return;
-        }
+    const addressString = input.value;
+    const error = validateUserFriendlyAddress(addressString, IS_TESTNET);
+    if (error) {
+      alert(`Proposer ${i}: ${error}`);
+      return;
+    }
+    const address = Address.parseFriendly(addressString).address;
+    if (addressMap[address.toRawString()]) {
+      alert("Duplicate " + addressString);
+      return;
+    }
+    addressMap[address.toRawString()] = true;
+    proposersAddresses.push(address);
+  }
 
-        const addressString = input.value;
-        const error = validateUserFriendlyAddress(addressString, IS_TESTNET);
-        if (error) {
-            alert(`Proposer ${i}: ${error}`);
-            return;
-        }
-        const address = Address.parseFriendly(addressString).address;
-        if (addressMap[address.toRawString()]) {
-            alert('Duplicate ' + addressString);
-            return;
-        }
-        addressMap[address.toRawString()] = true;
-        proposersAddresses.push(address);
+  // Make Transaction
+  // EQBynBO23ywHy_CgarY9NK9FTz0yDsG82PtcbSTQgGoXwiuA, EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs
+  if (newMultisigMode === "create") {
+    const token_addressString = newMultisigSupportedTokenInput.value;
+
+    const addressParse =
+      token_addressString.length > 10 ? token_addressString.split(",") : [];
+
+    const newMultisig = Multisig.createFromConfig(
+      {
+        threshold: threshold,
+        signers: signersAddresses,
+        proposers: proposersAddresses,
+        allowArbitrarySeqno: true,
+        supportedTokens: addressParse.map((strAdd) => {
+          return Address.parseFriendly(strAdd).address;
+        }),
+      },
+      MULTISIG_CODE
+    );
+
+    const newMultisigAddress = newMultisig.address;
+    const amount = toNano("0.001").toString(); // 1 TON
+
+    const stateInitCell = beginCell();
+    storeStateInit({
+      code: newMultisig.init.code as any,
+      data: newMultisig.init.data as any,
+    })(stateInitCell as any);
+
+    newMultisigTransactionToSend = {
+      multisigAddress: newMultisigAddress,
+      message: {
+        address: newMultisigAddress.toString({
+          urlSafe: true,
+          bounceable: true,
+          testOnly: IS_TESTNET,
+        }),
+        amount: amount,
+        stateInit: stateInitCell.endCell().toBoc().toString("base64"), // raw one-cell BoC encoded in Base64
+      },
+    };
+
+    newMultisigStatus = "confirm";
+    updateNewMultisigStatus();
+  } else {
+    const myProposerIndex = currentMultisigInfo.proposers.findIndex((address) =>
+      address.address.equals(myAddress)
+    );
+    const mySignerIndex = currentMultisigInfo.signers.findIndex((address) =>
+      address.address.equals(myAddress)
+    );
+
+    if (myProposerIndex === -1 && mySignerIndex === -1) {
+      alert("Error: you are not proposer and not signer");
+      return;
     }
 
-    // Make Transaction
+    const isSigner = mySignerIndex > -1;
 
-    if (newMultisigMode === 'create') {
+    const expireAt = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30; // 1 month
+    const addressParse = token_addressString.split(",");
+    const actions = Multisig.packOrder([
+      {
+        type: "update",
+        threshold: threshold,
+        signers: signersAddresses,
+        proposers: proposersAddresses,
+        supportedTokens: addressParse.map((strAdd) => {
+          return Address.parseFriendly(strAdd).address;
+        }),
+      },
+    ]);
 
-        const newMultisig = Multisig.createFromConfig({
-            threshold: threshold,
-            signers: signersAddresses,
-            proposers: proposersAddresses,
-            allowArbitrarySeqno: true
-        }, MULTISIG_CODE);
+    const message = Multisig.newOrderMessage(
+      actions,
+      expireAt,
+      isSigner,
+      isSigner ? mySignerIndex : myProposerIndex,
+      orderId,
+      0n
+    );
+    const messageBase64 = message.toBoc().toString("base64");
 
-        const newMultisigAddress = newMultisig.address;
-        const amount = toNano('1').toString() // 1 TON
+    const multisigAddressString = currentMultisigAddress;
+    const amount = DEFAULT_AMOUNT.toString();
 
-        const stateInitCell = beginCell();
-        storeStateInit({
-            code: newMultisig.init.code as any,
-            data: newMultisig.init.data as any
-        })(stateInitCell as any);
+    newMultisigTransactionToSend = {
+      multisigAddress: Address.parseFriendly(multisigAddressString).address,
+      orderId: orderId,
+      message: {
+        address: multisigAddressString,
+        amount: amount,
+        payload: messageBase64, // raw one-cell BoC encoded in Base64
+      },
+    };
 
-        newMultisigTransactionToSend = {
-            multisigAddress: newMultisigAddress,
-            message:
-                {
-                    address: newMultisigAddress.toString({urlSafe: true, bounceable: true, testOnly: IS_TESTNET}),
-                    amount: amount,
-                    stateInit: stateInitCell.endCell().toBoc().toString('base64'),  // raw one-cell BoC encoded in Base64
-                }
-
-        }
-
-        newMultisigStatus = 'confirm';
-        updateNewMultisigStatus();
-
-    } else {
-        const myProposerIndex = currentMultisigInfo.proposers.findIndex(address => address.address.equals(myAddress));
-        const mySignerIndex = currentMultisigInfo.signers.findIndex(address => address.address.equals(myAddress));
-
-        if (myProposerIndex === -1 && mySignerIndex === -1) {
-            alert('Error: you are not proposer and not signer');
-            return;
-        }
-
-        const isSigner = mySignerIndex > -1;
-
-        const expireAt = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30; // 1 month
-
-        const actions = Multisig.packOrder([
-            {
-                type: 'update',
-                threshold: threshold,
-                signers: signersAddresses,
-                proposers: proposersAddresses
-            }
-        ]);
-
-        const message = Multisig.newOrderMessage(actions, expireAt, isSigner, isSigner ? mySignerIndex : myProposerIndex, orderId, 0n)
-        const messageBase64 = message.toBoc().toString('base64');
-
-        const multisigAddressString = currentMultisigAddress;
-        const amount = DEFAULT_AMOUNT.toString();
-
-        newMultisigTransactionToSend = {
-            multisigAddress: Address.parseFriendly(multisigAddressString).address,
-            orderId: orderId,
-            message: {
-                address: multisigAddressString,
-                amount: amount,
-                payload: messageBase64,  // raw one-cell BoC encoded in Base64
-            }
-        };
-
-        newMultisigStatus = 'confirm';
-        updateNewMultisigStatus();
-    }
+    newMultisigStatus = "confirm";
+    updateNewMultisigStatus();
+  }
 });
 
 // START
 
 const tryLoadMultisigFromLocalStorage = () => {
-    const multisigAddress: string = localStorage.getItem('multisigAddress');
+  const multisigAddress: string = localStorage.getItem("multisigAddress");
 
-    if (!multisigAddress) {
-        showScreen('startScreen');
-    } else {
-        setMultisigAddress(multisigAddress);
-    }
-}
+  if (!multisigAddress) {
+    showScreen("startScreen");
+  } else {
+    setMultisigAddress(multisigAddress);
+  }
+};
 
 const parseAddressFromUrl = (url: string): undefined | AddressInfo => {
-    if (!Address.isFriendly(url)) {
-        return undefined;
-    }
-    return Address.parseFriendly(url);
-}
+  if (!Address.isFriendly(url)) {
+    return undefined;
+  }
+  return Address.parseFriendly(url);
+};
 
 const parseBigIntFromUrl = (url: string): undefined | bigint => {
-    try {
-        const orderId = BigInt(url);
-        if (orderId < 0) return undefined;
-        return orderId;
-    } catch (e) {
-        return undefined;
-    }
-}
+  try {
+    const orderId = BigInt(url);
+    if (orderId < 0) return undefined;
+    return orderId;
+  } catch (e) {
+    return undefined;
+  }
+};
 
 interface ParsedUrl {
-    multisigAddress?: AddressInfo;
-    orderId?: bigint;
+  multisigAddress?: AddressInfo;
+  orderId?: bigint;
 }
 
 const parseUrl = (url: string): ParsedUrl => {
-    if (url.indexOf('/') > -1) {
-        const arr = url.split('/');
-        if (arr.length !== 2) {
-            return {};
-        }
-        const multisigAddress = parseAddressFromUrl(arr[0]);
-        if (multisigAddress === undefined) {
-            return {};
-        }
-
-        const orderId = parseBigIntFromUrl(arr[1]);
-        if (orderId === undefined) {
-            return {};
-        }
-
-        return {
-            multisigAddress: multisigAddress,
-            orderId: orderId
-        };
-    } else {
-        return {
-            multisigAddress: parseAddressFromUrl(url)
-        };
+  if (url.indexOf("/") > -1) {
+    const arr = url.split("/");
+    if (arr.length !== 2) {
+      return {};
     }
-}
+    const multisigAddress = parseAddressFromUrl(arr[0]);
+    if (multisigAddress === undefined) {
+      return {};
+    }
+
+    const orderId = parseBigIntFromUrl(arr[1]);
+    if (orderId === undefined) {
+      return {};
+    }
+
+    return {
+      multisigAddress: multisigAddress,
+      orderId: orderId,
+    };
+  } else {
+    return {
+      multisigAddress: parseAddressFromUrl(url),
+    };
+  }
+};
 
 const processUrl = async () => {
-    clearMultisig();
-    clearOrder();
+  clearMultisig();
+  clearOrder();
 
-    const urlPostfix = window.location.hash.substring(1);
+  const urlPostfix = window.location.hash.substring(1);
 
-    if (urlPostfix) {
-        const {multisigAddress, orderId} = parseUrl(urlPostfix);
+  if (urlPostfix) {
+    const { multisigAddress, orderId } = parseUrl(urlPostfix);
 
-        console.log(multisigAddress, orderId);
+    console.log(multisigAddress, orderId);
 
-        if (multisigAddress === undefined) {
-            alert('Invalid URL');
-            showScreen('startScreen');
-        } else {
-            const newMultisigAddress = formatContractAddress(multisigAddress.address);
-            await setMultisigAddress(newMultisigAddress, orderId);
-            if (orderId !== undefined && (currentMultisigAddress === newMultisigAddress)) {
-                await setOrderId(orderId, undefined);
-            }
-        }
+    if (multisigAddress === undefined) {
+      alert("Invalid URL");
+      showScreen("startScreen");
     } else {
-        tryLoadMultisigFromLocalStorage();
+      const newMultisigAddress = formatContractAddress(multisigAddress.address);
+      await setMultisigAddress(newMultisigAddress, orderId);
+      if (
+        orderId !== undefined &&
+        currentMultisigAddress === newMultisigAddress
+      ) {
+        await setOrderId(orderId, undefined);
+      }
     }
-}
+  } else {
+    tryLoadMultisigFromLocalStorage();
+  }
+};
 
 processUrl();
 
