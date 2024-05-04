@@ -274,7 +274,7 @@ export class Multisig implements Contract {
       supported
     );
 
-    console.log("stack", dict);
+
     return { nextOrderSeqno, threshold, signers, proposers, dict };
   }
 }
