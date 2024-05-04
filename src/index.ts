@@ -209,7 +209,7 @@ $("#Submit_Test_Deposit").addEventListener("click", async () => {
   );
   let ref = beginCell();
   if (Number(chain_id) && dest.length > 20) {
-    ref.storeUint(Op.multisig.crossout, 32)
+    ref.storeUint(Op.multisig.crossout, 32);
     const destAddress = Address.parse(dest);
 
     let destAddressInt = BigInt("0x" + destAddress.hash.toString("hex"));
@@ -243,15 +243,10 @@ $("#Submit_Test_Deposit").addEventListener("click", async () => {
     messages: [
       {
         address: jettonSource.toString(),
-        amount: toNano(0.03).toString(),
+        amount: toNano(0.05).toString(),
         payload: transferMessage.toBoc().toString("base64"),
       },
     ],
-  });
-  console.log({
-    address: jettonSource.toString(),
-    amount: toNano(0.12).toString(),
-    payload: transferMessage.toBoc().toString("base64"),
   });
 });
 
