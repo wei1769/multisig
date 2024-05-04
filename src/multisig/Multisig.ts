@@ -239,18 +239,7 @@ export class Multisig implements Contract {
 
   async getMultisigData(provider: ContractProvider) {
     const { stack } = await provider.get("get_multisig_data", []);
-    stack.readNumber();
-    stack.readNumber();
-    stack.readCell();
-    stack.readNumberOpt();
-    let supported = stack.readCell();
-    let dict = Dictionary.loadDirect(
-      Dictionary.Keys.BigUint(256),
-      Dictionary.Values.Uint(1),
-      supported
-    );
 
-    console.log("stack", dict);
     // let addressCell = beginCell()
     //   .storeAddress(
     //     Address.parse("EQDMopZR4ZJ1cF2l76b5yZ5_isHgTXf3iDzFBLjvyLVUwk8u")
@@ -278,6 +267,14 @@ export class Multisig implements Contract {
     const threshold = stack.readBigNumber();
     const signers = cellToArray(stack.readCellOpt());
     const proposers = cellToArray(stack.readCellOpt());
-    return { nextOrderSeqno, threshold, signers, proposers };
+    let supported = stack.readCell();
+    let dict = Dictionary.loadDirect(
+      Dictionary.Keys.BigUint(256),
+      Dictionary.Values.Uint(1),
+      supported
+    );
+
+    console.log("stack", dict);
+    return { nextOrderSeqno, threshold, signers, proposers, dict };
   }
 }

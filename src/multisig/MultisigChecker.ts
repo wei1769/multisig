@@ -123,9 +123,7 @@ export const checkMultisig = async (
     const data = Cell.fromBase64(result.data);
     const parsedData = parseMultisigData(data);
 
-    if (parsedData.allowArbitraryOrderSeqno) {
-        assert(parsedData.nextOderSeqno === BigInt(0), 'invalid nextOrderSeqno for allowArbitraryOrderSeqno');
-    }
+    
 
     const signers = parsedData.signers;
     const proposers = parsedData.proposers;

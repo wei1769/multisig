@@ -888,8 +888,8 @@ interface OrderType {
   makeMessage: (values: { [key: string]: any }) => Promise<MakeMessageResult>;
 }
 
-const AMOUNT_TO_SEND = toNano("0.02"); // 0.2 TON
-const DEFAULT_AMOUNT = toNano("0.08"); // 0.1 TON
+const AMOUNT_TO_SEND = toNano("0.01"); // 0.2 TON
+const DEFAULT_AMOUNT = toNano("0.05"); // 0.1 TON
 const DEFAULT_INTERNAL_AMOUNT = toNano("0.005"); // 0.05 TON
 
 const checkJettonMinterAdmin = async (values: {
