@@ -203,22 +203,14 @@ $("#Submit_Test_Deposit").addEventListener("click", async () => {
   const provider = new MyNetworkProvider(address, IS_TESTNET);
   let jettonMaster = JettonMinter.createFromAddress(address);
   let jettonSource = await jettonMaster.getWalletAddress(provider, myAddress);
-  const jetton_dest = await jettonMaster.getWalletAddress(
-    provider,
-    Address.parse(currentMultisigAddress)
-  );
   let ref = beginCell();
   if (Number(chain_id) && dest.length > 20) {
     ref.storeUint(Op.multisig.crossout, 32);
     const destAddress = Address.parse(dest);
 
     let destAddressInt = BigInt("0x" + destAddress.hash.toString("hex"));
-    console.log(destAddress.hash.toString("hex"));
     let chain_id_int = BigInt(chain_id);
-    console.log(BigInt.asUintN(256, destAddressInt).toString());
-    console.log(destAddressInt.toString());
     ref.storeUint(BigInt.asUintN(256, destAddressInt), 256);
-    console.log(BigInt.asUintN(256, destAddressInt).toString());
     ref.storeUint(chain_id_int, 256);
   } else {
     ref.storeUint(Op.multisig.deposit, 32);
@@ -231,13 +223,6 @@ $("#Submit_Test_Deposit").addEventListener("click", async () => {
     toNano(0.01),
     ref.endCell()
   );
-  const API_KEY =
-    "d843619b379084d133f061606beecbf72ae2bf60e0622e808f2a3f631673599b";
-  let rpc = new TonClient({
-    endpoint: "https://toncenter.com/api/v2/jsonRPC",
-    apiKey: API_KEY,
-  });
-  console.log(jetton_dest.toString());
   let result = await tonConnectUI.sendTransaction({
     validUntil: Math.floor(Date.now() / 1000) + 60,
     messages: [
