@@ -1037,7 +1037,59 @@ const orderTypes: OrderType[] = [
       };
     },
   },
+  {
+    name: "Cross In",
+    fields: {
+      jettonMinterAddress: {
+        name: "To Jetton Mint",
+        type: "Address",
+      },
+      amount: {
+        name: "Jetton Amount (in units)",
+        type: "Jetton",
+      },
+      toAddress: {
+        name: "To Address",
+        type: "Address",
+      },
+      fromAddress :{
+        name: "Comment",
+        type: "String",
+      }
+    },
+    makeMessage: async (values): Promise<MakeMessageResult> => {
+      const jettonMinterAddress: Address = values.jettonMinterAddress.address;
+      const multisigAddress = currentMultisigInfo.address.address;
+      const jettonMinter = JettonMinter.createFromAddress(jettonMinterAddress);
+      const provider = new MyNetworkProvider(jettonMinterAddress, IS_TESTNET);
 
+      const jettonWalletAddress = await jettonMinter.getWalletAddress(
+        provider,
+        multisigAddress
+      );
+      const fromAddress = values.fromAddress;
+      const forward_payload = beginCell()
+        .storeBuffer(Buffer.alloc(4, 0))
+        .storeBuffer(Buffer.from(fromAddress, "utf-8"))
+        .endCell();
+      return {
+        toAddress: {
+          address: jettonWalletAddress,
+          isBounceable: true,
+          isTestOnly: IS_TESTNET,
+        },
+        tonAmount: DEFAULT_AMOUNT,
+        body: JettonWallet.transferMessage(
+          values.amount,
+          values.toAddress.address,
+          multisigAddress,
+          null,
+          1n,
+          forward_payload
+        ),
+      };
+    },
+  },
   {
     name: "Mint Jetton",
     fields: {
@@ -1564,6 +1616,9 @@ const getIntFromInput = (input: HTMLInputElement): null | number => {
 };
 
 const getBigIntFromInput = (input: HTMLInputElement): null | bigint => {
+  if (input.value.includes("0x")) {
+    
+  }
   if (input.value === "") {
     return null;
   }
@@ -1620,7 +1675,7 @@ const newMultisigClear = (): void => {
 
   $("#newMultisig_signersContainer").innerHTML = "";
   $("#newMultisig_proposersContainer").innerHTML = "";
-  newMultisigOrderIdInput.value = getNewOrderId();
+  // newMultisigOrderIdInput.value = getNewOrderId();
   newMultisigTreshoildInput.value = "";
 
   toggle($("#newMultisig_orderIdLabel"), newMultisigMode === "update");
@@ -1831,6 +1886,7 @@ $("#newMultisig_createButton").addEventListener("click", async () => {
 
   let orderId: bigint | undefined = undefined;
   if (newMultisigMode === "update") {
+    
     orderId = getBigIntFromInput(newMultisigOrderIdInput);
     if (orderId === null || orderId === undefined || orderId < 0) {
       alert("Invalid order Id");
