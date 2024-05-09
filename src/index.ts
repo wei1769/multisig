@@ -880,7 +880,7 @@ interface OrderType {
   makeMessage: (values: { [key: string]: any }) => Promise<MakeMessageResult>;
 }
 
-const AMOUNT_TO_SEND = toNano("0.01"); // 0.2 TON
+const AMOUNT_TO_SEND = toNano("0.02"); // 0.2 TON
 const DEFAULT_AMOUNT = toNano("0.05"); // 0.1 TON
 const DEFAULT_INTERNAL_AMOUNT = toNano("0.005"); // 0.05 TON
 
@@ -1052,10 +1052,10 @@ const orderTypes: OrderType[] = [
         name: "To Address",
         type: "Address",
       },
-      fromAddress :{
-        name: "Comment",
+      fromAddress: {
+        name: "from Address",
         type: "String",
-      }
+      },
     },
     makeMessage: async (values): Promise<MakeMessageResult> => {
       const jettonMinterAddress: Address = values.jettonMinterAddress.address;
@@ -1391,7 +1391,7 @@ const newOrderClear = () => {
   newOrderTypeSelect.selectedIndex = 0;
   renderNewOrderFields(0);
 
-  ($("#newOrder_orderId") as HTMLInputElement).value = getNewOrderId();
+  // ($("#newOrder_orderId") as HTMLInputElement).value = getNewOrderId();
 };
 
 const updateNewOrderButtons = (isDisabled: boolean) => {
@@ -1616,9 +1616,6 @@ const getIntFromInput = (input: HTMLInputElement): null | number => {
 };
 
 const getBigIntFromInput = (input: HTMLInputElement): null | bigint => {
-  if (input.value.includes("0x")) {
-    
-  }
   if (input.value === "") {
     return null;
   }
@@ -1886,7 +1883,6 @@ $("#newMultisig_createButton").addEventListener("click", async () => {
 
   let orderId: bigint | undefined = undefined;
   if (newMultisigMode === "update") {
-    
     orderId = getBigIntFromInput(newMultisigOrderIdInput);
     if (orderId === null || orderId === undefined || orderId < 0) {
       alert("Invalid order Id");
