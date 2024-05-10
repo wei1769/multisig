@@ -1,6 +1,6 @@
 import {Address, beginCell, Cell, Contract, contractAddress, ContractProvider, Dictionary} from '@ton/core';
 import {Params} from "./Constants";
-import {endParse} from "./Multisig";
+import {dictToArray, endParse} from "./Multisig";
 import {assert} from "../utils/utils";
 
 export type OrderConfig = {
@@ -96,7 +96,7 @@ export class Order implements Contract {
         const order_seqno = stack.readBigNumber();
         const threshold = stack.readNumber();
         const executed = stack.readBoolean();
-        const signers = cellToArray(stack.readCell());
+        const signers = dictToArray(stack.readCell());
         const approvals = stack.readBigNumber();
         const approvals_num = stack.readNumber();
         const expiration_date = stack.readBigNumber();

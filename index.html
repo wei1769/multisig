@@ -76,6 +76,9 @@
             <div class="label">Order ID:</div>
             <div id="multisig_orderId" class="value"></div>
 
+            <div class="label">Supported Wallets:</div>
+            <div id="Multisig_supported_token" class="value"></div>
+
             <button id="multisig_updateButton">
               Change multisig configuration
             </button>
@@ -130,7 +133,9 @@
         <div class="label">Threshold:</div>
         <input id="newMultisig_threshold" />
 
-        <div class="label">supported_token:</div>
+        <div id="newMultisig_supportedTokenLabel" class="label">
+          supported_token:
+        </div>
         <input id="newMultisig_supported_token" />
 
         <button id="newMultisig_createButton">Next</button>
@@ -187,7 +192,7 @@
 
     <div id="deposit_screen" class="screen">
       <div class="panel">
-        <div class="label">Deposit Token Mint </div>
+        <div class="label">Deposit Token Mint</div>
         <input id="deposit_token_mint" />
 
         <div class="label">Amount</div>
@@ -199,9 +204,8 @@
         <div class="label">Chain id (cross out)</div>
         <input id="cross_out_chain_id" />
 
-
         <button id="Submit_Test_Deposit">Create</button>
-        <button id="import_backButton">Back</button>
+        <button id="deposit_backButton">Back</button>
       </div>
     </div>
 

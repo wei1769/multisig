@@ -33,10 +33,14 @@ export type UpdateRequest = {
   threshold: number;
   signers: Array<Address>;
   proposers: Array<Address>;
-  supportedTokens: Array<Address>;
 };
 
-export type Action = TransferRequest | UpdateRequest;
+export type UpdateWallet = {
+  type: "update_wallet";
+  wallet: Array<Address>;
+};
+
+export type Action = TransferRequest | UpdateRequest | UpdateWallet;
 export type Order = Array<Action>;
 
 function arrayToCell(arr: Array<Address>): Dictionary<number, Address> {
@@ -59,6 +63,22 @@ function arrayToDict(arr: Array<Address>): Dictionary<bigint, number> {
   }
   return dict;
 }
+
+export function dictToArray(addrDict: Cell | null): Array<Address> {
+  let resArr: Array<Address> = [];
+  if (addrDict !== null) {
+    const dict = Dictionary.loadDirect(
+      Dictionary.Keys.BigUint(256),
+      Dictionary.Values.Uint(1),
+      addrDict
+    );
+    dict.keys().forEach((key) => {
+      resArr.push(Address.parse("0:" + key.toString(16)));
+    });
+  }
+  return resArr;
+}
+
 export function cellToArray(addrDict: Cell | null): Array<Address> {
   const addresses: { [key: string]: boolean } = {};
 
@@ -109,6 +129,7 @@ export function parseMultisigData(data: Cell) {
   const signersCount = slice.loadUint(8);
   const proposers = cellToArray(slice.loadMaybeRef());
   const allowArbitraryOrderSeqno = slice.loadBit();
+  const supportedTokens = dictToArray(slice.loadMaybeRef());
   // endParse(slice);
   return {
     nextOderSeqno,
@@ -117,6 +138,7 @@ export function parseMultisigData(data: Cell) {
     signersCount,
     proposers,
     allowArbitraryOrderSeqno,
+    supportedTokens,
   };
 }
 
@@ -167,8 +189,16 @@ export class Multisig implements Contract {
 
   static packUpdateRequest(update: UpdateRequest) {
     return beginCell()
+      .storeUint(Op.actions.update_multisig_params, Params.bitsize.op)
+      .storeUint(update.threshold, Params.bitsize.signerIndex)
+      .storeRef(beginCell().storeDictDirect(arrayToCell(update.signers)))
+      .storeDict(arrayToCell(update.proposers))
+      .endCell();
+  }
+  static packUpdateWallet(update: UpdateWallet) {
+    return beginCell()
       .storeUint(Op.actions.update_supported_token, Params.bitsize.op)
-      .storeDict(arrayToDict(update.supportedTokens))
+      .storeDict(arrayToDict(update.wallet))
       .endCell();
   }
 
@@ -186,7 +216,9 @@ export class Multisig implements Contract {
         const actionCell =
           action.type === "transfer"
             ? Multisig.packTransferRequest(action)
-            : Multisig.packUpdateRequest(action);
+            : action.type == "update"
+            ? Multisig.packUpdateRequest(action)
+            : Multisig.packUpdateWallet(action);
         order_dict.set(i, actionCell);
       }
       return beginCell().storeDictDirect(order_dict).endCell();
@@ -273,7 +305,6 @@ export class Multisig implements Contract {
       Dictionary.Values.Uint(1),
       supported
     );
-
 
     return { nextOrderSeqno, threshold, signers, proposers, dict };
   }

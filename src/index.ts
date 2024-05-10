@@ -31,7 +31,7 @@ import {
   lockTypeToDescription,
   lockTypeToInt,
 } from "./jetton/JettonMinter";
-import { Multisig } from "./multisig/Multisig";
+import { Action, Multisig } from "./multisig/Multisig";
 import { toUnits } from "./utils/units";
 import { checkJettonMinter } from "./jetton/JettonMinterChecker";
 import { storeStateInit } from "@ton/core/src/types/StateInit";
@@ -183,7 +183,6 @@ $("#createMultisigButton").addEventListener("click", () => {
 });
 
 $("#TEstJettonDeposit").addEventListener("click", () => {
-  console.log("Test");
   showScreen("deposit_screen");
 });
 
@@ -267,10 +266,14 @@ $("#import_backButton").addEventListener("click", () => {
   showScreen("startScreen");
 });
 
+$("#deposit_backButton").addEventListener("click", () => {
+  showScreen("multisigScreen");
+});
+
 // MULTISIG SCREEN
 
 const MULTISIG_CODE = Cell.fromBase64(
-  "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"
+  "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"
 );
 const MULTISIG_ORDER_CODE = Cell.fromBase64(
   "te6cckEBAQEAIwAIQgJjBagGHIVsLM8F3LDfWBXHFHWHBWfKtfBJ40C89ZJR80AoJo0="
@@ -295,10 +298,16 @@ const renderCurrentMultisigInfo = (): void => {
     allowArbitraryOrderSeqno,
     nextOderSeqno,
     lastOrders,
+    supportedWallets,
   } = currentMultisigInfo;
 
   // Render Multisig Info
 
+  let supportedTokens = supportedWallets
+    .map((x) => {
+      return x.address.toString();
+    })
+    .join(", ");
   $("#multisig_tonBalance").innerText = fromNano(tonBalance) + " TON";
 
   $("#multisig_threshold").innerText = threshold + "/" + signers.length;
@@ -306,7 +315,7 @@ const renderCurrentMultisigInfo = (): void => {
   $("#multisig_orderId").innerText = allowArbitraryOrderSeqno
     ? "Arbitrary"
     : nextOderSeqno.toString();
-
+  $("#Multisig_supported_token").innerText = supportedTokens;
   // Signers
 
   let signersHTML = "";
@@ -355,21 +364,21 @@ const renderCurrentMultisigInfo = (): void => {
     if (lastOrder.errorMessage) {
       if (lastOrder.errorMessage.startsWith("Contract not active")) return ``;
       if (lastOrder.errorMessage.startsWith("Failed")) {
-        return `<div class="multisig_lastOrder" order-id="${
+        return `<div class="multisig_lastOrder" order-id="${getOrderIdString(
           lastOrder.order.id
-        }" order-address="${addressToString(
+        )}" order-address="${addressToString(
           lastOrder.order.address
-        )}"><span class="orderListItem_title">Failed Order #${
+        )}"><span class="orderListItem_title">Failed Order ${getOrderIdString(
           lastOrder.order.id
-        }</span> — Execution error</div>`;
+        )}</span> — Execution error</div>`;
       }
-      return `<div class="multisig_lastOrder" order-id="${
+      return `<div class="multisig_lastOrder" order-id="${getOrderIdString(
         lastOrder.order.id
-      }" order-address="${addressToString(
+      )}" order-address="${addressToString(
         lastOrder.order.address
-      )}"><span class="orderListItem_title">Invalid Order #${
+      )}"><span class="orderListItem_title">Invalid Order ${getOrderIdString(
         lastOrder.order.id
-      }</span> — ${lastOrder.errorMessage}</div>`;
+      )}</span> — ${lastOrder.errorMessage}</div>`;
     } else {
       const isExpired = lastOrder.orderInfo
         ? new Date().getTime() > lastOrder.orderInfo.expiresAt.getTime()
@@ -377,7 +386,9 @@ const renderCurrentMultisigInfo = (): void => {
       const actionText = isExpired
         ? "Expired order "
         : formatOrderType(lastOrder);
-      let text = `<span class="orderListItem_title">${actionText} #${lastOrder.order.id}</span>`;
+      let text = `<span class="orderListItem_title">${actionText} ${getOrderIdString(
+        lastOrder.order.id
+      )}</span>`;
 
       if (lastOrder.type === "pending" && !isExpired) {
         text += ` — ${lastOrder.orderInfo.approvalsNum}/${lastOrder.orderInfo.threshold}`;
@@ -395,9 +406,9 @@ const renderCurrentMultisigInfo = (): void => {
         }
       }
 
-      return `<div class="multisig_lastOrder" order-id="${
+      return `<div class="multisig_lastOrder" order-id="${getOrderIdString(
         lastOrder.order.id
-      }" order-address="${addressToString(
+      )}" order-address="${addressToString(
         lastOrder.order.address
       )}">${text}</div>`;
     }
@@ -429,7 +440,9 @@ const renderCurrentMultisigInfo = (): void => {
     div.addEventListener("click", (e) => {
       const attributes = (e.currentTarget as HTMLElement).attributes;
       const orderAddressString = attributes.getNamedItem("order-address").value;
-      const orderId = BigInt(attributes.getNamedItem("order-id").value);
+      const orderId = BigInt(
+        attributes.getNamedItem("order-id").value.replace("#", "")
+      );
       setOrderId(orderId, orderAddressString);
     });
   });
@@ -682,8 +695,11 @@ const setOrderId = async (
 
     newOrderAddress = formatContractAddress(tempOrder.address);
   }
-
-  $("#order_id").innerText = "#" + currentOrderId;
+  let currentOrderIdString = "#" + currentOrderId.toString();
+  if (currentOrderId.toString(16).length >= 40) {
+    currentOrderIdString = "0x" + currentOrderId.toString(16);
+  }
+  $("#order_id").innerText = currentOrderIdString;
 
   const orderAddress = Address.parseFriendly(newOrderAddress);
   orderAddress.isBounceable = true;
@@ -729,8 +745,6 @@ $("#order_approveButton").addEventListener("click", async () => {
     .endCell()
     .toBoc()
     .toString("base64");
-
-  console.log({ orderAddressString, amount });
 
   const transaction = {
     validUntil: Math.floor(Date.now() / 1000) + 60, // 1 minute
@@ -880,7 +894,7 @@ interface OrderType {
   makeMessage: (values: { [key: string]: any }) => Promise<MakeMessageResult>;
 }
 
-const AMOUNT_TO_SEND = toNano("0.02"); // 0.2 TON
+const AMOUNT_TO_SEND = toNano("0.05"); // 0.2 TON
 const DEFAULT_AMOUNT = toNano("0.05"); // 0.1 TON
 const DEFAULT_INTERNAL_AMOUNT = toNano("0.005"); // 0.05 TON
 
@@ -1010,15 +1024,14 @@ const orderTypes: OrderType[] = [
         provider,
         multisigAddress
       );
-      console.log("jettonWalletAddress", jettonWalletAddress.toString());
+
       const comment = values.comment;
-      console.log("comment", comment);
+
       const forward_payload = beginCell()
         .storeBuffer(Buffer.alloc(4, 0))
         .storeBuffer(Buffer.from(comment, "utf-8"))
         .endCell();
-      console.log("payload", forward_payload); //b5ee9c7201010201003e0001627362d09c546de4efef7b7e3a30186a08011637f4ec0f944672098eb6b8d98906100778938c04ed4f249c3177b1365c0f730100100000000074657374
-      //b5ee9c7201010201003800015e7362d09c0000000000000000164801636a741bf9e36086b30c7c49cb8b811b38ec2428d4f4d48a7c6f18e81ad4646f01000854657374
+
       return {
         toAddress: {
           address: jettonWalletAddress,
@@ -1565,14 +1578,6 @@ $("#newOrder_createButton").addEventListener("click", async () => {
   );
   const messageBase64 = message.toBoc().toString("base64");
 
-  console.log({
-    toAddress,
-    tonAmount,
-    payloadCell,
-    message,
-    orderId,
-  });
-
   const multisigAddressString = currentMultisigAddress;
   const amount = AMOUNT_TO_SEND.toString();
 
@@ -1630,6 +1635,7 @@ const getBigIntFromInput = (input: HTMLInputElement): null | bigint => {
 const newMultisigTreshoildInput = $(
   "#newMultisig_threshold"
 ) as HTMLInputElement;
+
 const newMultisigOrderIdInput = $("#newMultisig_orderId") as HTMLInputElement;
 const newMultisigSupportedTokenInput = $(
   "#newMultisig_supported_token"
@@ -1676,7 +1682,9 @@ const newMultisigClear = (): void => {
   newMultisigTreshoildInput.value = "";
 
   toggle($("#newMultisig_orderIdLabel"), newMultisigMode === "update");
+  toggle($("#newMultisig_supportedTokenLabel"), newMultisigMode === "update");
   toggle($("#newMultisig_orderId"), newMultisigMode === "update");
+  toggle($("#newMultisig_supported_token"), newMultisigMode === "update");
 
   if (newMultisigMode === "create") {
     addSignerInput(0);
@@ -1691,6 +1699,12 @@ const newMultisigClear = (): void => {
       addProposerInput(i, addressToString(currentMultisigInfo.proposers[i]));
     }
     newMultisigTreshoildInput.value = currentMultisigInfo.threshold.toString();
+    let supportedTokens = currentMultisigInfo.supportedWallets
+      .map((x) => {
+        return x.address.toString();
+      })
+      .join(", ");
+    newMultisigSupportedTokenInput.value = supportedTokens;
   }
 
   updateNewMultisigDeleteButtons();
@@ -1869,7 +1883,6 @@ $("#newMultisig_createButton").addEventListener("click", async () => {
   // Get parameters
 
   const threshold = getIntFromInput(newMultisigTreshoildInput);
-  const token_addressString = newMultisigSupportedTokenInput.value;
 
   if (
     threshold === null ||
@@ -1949,20 +1962,13 @@ $("#newMultisig_createButton").addEventListener("click", async () => {
   // Make Transaction
   // EQBynBO23ywHy_CgarY9NK9FTz0yDsG82PtcbSTQgGoXwiuA, EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs
   if (newMultisigMode === "create") {
-    const token_addressString = newMultisigSupportedTokenInput.value;
-
-    const addressParse =
-      token_addressString.length > 10 ? token_addressString.split(",") : [];
-
     const newMultisig = Multisig.createFromConfig(
       {
         threshold: threshold,
         signers: signersAddresses,
         proposers: proposersAddresses,
         allowArbitrarySeqno: true,
-        supportedTokens: addressParse.map((strAdd) => {
-          return Address.parseFriendly(strAdd).address;
-        }),
+        supportedTokens: [],
       },
       MULTISIG_CODE
     );
@@ -2007,18 +2013,31 @@ $("#newMultisig_createButton").addEventListener("click", async () => {
     const isSigner = mySignerIndex > -1;
 
     const expireAt = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30; // 1 month
-    const addressParse = token_addressString.split(",");
-    const actions = Multisig.packOrder([
+    const token_addressString = newMultisigSupportedTokenInput.value;
+    const addressParse =
+      token_addressString.length > 10
+        ? token_addressString.split(",").map((t) => {
+            return t.trim();
+          })
+        : [];
+    let orders: Action[] = [
       {
         type: "update",
         threshold: threshold,
         signers: signersAddresses,
         proposers: proposersAddresses,
-        supportedTokens: addressParse.map((strAdd) => {
-          return Address.parseFriendly(strAdd).address;
-        }),
       },
-    ]);
+    ];
+    try {
+      let supportedTokens = addressParse.map((strAdd) => {
+        return Address.parseFriendly(strAdd).address;
+      });
+      orders.push({
+        type: "update_wallet",
+        wallet: supportedTokens,
+      });
+    } catch (e) {}
+    const actions = Multisig.packOrder(orders);
 
     const message = Multisig.newOrderMessage(
       actions,
@@ -2141,3 +2160,9 @@ const processUrl = async () => {
 processUrl();
 
 window.onpopstate = () => processUrl();
+function getOrderIdString(orderId: bigint): string {
+  if (orderId.toString(16).length >= 40) {
+    return "0x" + orderId.toString(16);
+  }
+  return "#" + orderId.toString();
+}

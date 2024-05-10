@@ -111,6 +111,7 @@ export interface MultisigInfo {
   tonBalance: bigint;
   lastOrders: LastOrder[];
   stateInitMatches: boolean;
+  supportedWallets: AddressInfo[];
 }
 
 export const checkMultisig = async (
@@ -145,7 +146,7 @@ export const checkMultisig = async (
 
   const signers = parsedData.signers;
   const proposers = parsedData.proposers;
-
+  const supportedTokens = parsedData.supportedTokens;
   assert(signers.length === parsedData.signersCount, "invalid signersCount");
   assert(parsedData.threshold > 0, "threshold <= 0");
   assert(parsedData.threshold <= parsedData.signersCount, "invalid threshold");
@@ -157,6 +158,10 @@ export const checkMultisig = async (
   const proposersFormatted = [];
   for (const proposer of proposers) {
     proposersFormatted.push(await getAddressFormat(proposer, isTestnet));
+  }
+  const supportedTokenFromatted = [];
+  for (const wallet of supportedTokens) {
+    supportedTokenFromatted.push(await getAddressFormat(wallet, isTestnet));
   }
 
   // Get-methods
@@ -170,10 +175,10 @@ export const checkMultisig = async (
     console.log(parsedData);
     console.log(getData);
     if (parsedData.allowArbitraryOrderSeqno) {
-    //   assert(
-    //     getData.nextOrderSeqno === BigInt(-1),
-    //     "nextOderSeqno doesn't match"
-    //   );
+      //   assert(
+      //     getData.nextOrderSeqno === BigInt(-1),
+      //     "nextOderSeqno doesn't match"
+      //   );
     } else {
       assert(
         getData.nextOrderSeqno === parsedData.nextOderSeqno,
@@ -223,6 +228,7 @@ export const checkMultisig = async (
     tonBalance,
     lastOrders: [],
     stateInitMatches,
+    supportedWallets: supportedTokenFromatted,
   };
 
   // Last Orders
@@ -280,6 +286,7 @@ export const checkMultisig = async (
             },
           });
         } catch (e: any) {
+          console.log(e);
           lastOrders.push({
             utime: tx.now,
             transactionHash: tx.hash,
@@ -383,7 +390,11 @@ export const checkMultisig = async (
       const findFailTx = (tonApiResult: any): boolean => {
         if (tonApiResult.transaction) {
           if (tonApiResult.transaction.success === false) {
-            if (tonApiResult.transaction.in_msg.decoded_op_name !== "excess") {
+            if (
+              tonApiResult.transaction.in_msg.decoded_op_name !== "excess" &&
+              tonApiResult.transaction.in_msg.decoded_op_name !==
+                "jetton_notify"
+            ) {
               return true;
             }
           }
