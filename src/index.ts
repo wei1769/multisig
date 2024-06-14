@@ -203,27 +203,27 @@ $("#Submit_Test_Deposit").addEventListener("click", async () => {
   let jettonMaster = JettonMinter.createFromAddress(address);
   let jettonSource = await jettonMaster.getWalletAddress(provider, myAddress);
   let ref = beginCell();
-  if (Number(chain_id) && dest.length > 10) {
+  let destAddress = Buffer.alloc(32);
+  let tryParse = false;
+  try {
+    Address.parseFriendly(dest);
+    tryParse = true;
+  } catch (e) {
+    tryParse = false;
+  }
+  if (tryParse) {
+    destAddress = Address.parse(dest).toRaw();
+  } else if (dest.includes("0x")) {
+    destAddress = Buffer.from(dest.slice(2), "hex");
+  }
+  if (Number(chain_id)) {
     ref.storeUint(Op.multisig.crossout, 32);
-    let destAddress = Buffer.alloc(32);
-    let tryParse = false;
-    try {
-      Address.parseFriendly(dest);
-      tryParse = true;
-    } catch (e) {
-      tryParse = false;
-    }
-    if (tryParse) {
-      destAddress = Address.parse(dest).toRaw();
-    } else if (dest.includes("0x")) {
-      destAddress = Buffer.from(dest.slice(2), "hex");
-    }
-
     let chain_id_int = BigInt(chain_id);
     ref.storeRef(beginCell().storeBuffer(destAddress).endCell());
     ref.storeUint(chain_id_int, 256);
   } else {
     ref.storeUint(Op.multisig.deposit, 32);
+    ref.storeRef(beginCell().storeBuffer(destAddress).endCell());
   }
   let transferMessage = JettonWallet.transferMessage(
     BigInt(amount),
