@@ -73,7 +73,10 @@ export function dictToArray(addrDict: Cell | null): Array<Address> {
       addrDict
     );
     dict.keys().forEach((key) => {
-      resArr.push(Address.parse("0:" + key.toString(16)));
+      if (key.toString(16).length < 64) {
+        console.log(key.toString(16));
+      }
+      resArr.push(Address.parse("0:" + key.toString(16).padStart(64, "0")));
     });
   }
   return resArr;
